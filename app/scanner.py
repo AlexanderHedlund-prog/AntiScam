@@ -327,12 +327,13 @@ async def google_check(url: str, api_key: str | None) -> dict[str, Any]:
         del _GOOGLE_CACHE[cache_key]
 
     try:
-        # Explicitly request JSON so parsing does not depend on provider defaults.
+        # Use the minimal officially documented v5 urls.search query.
+        # JSON is requested via Accept; no optional alt parameter is needed.
         # The URL is only sent after the user authorises sending it to services.
         async with httpx.AsyncClient(timeout=12, trust_env=False, follow_redirects=False) as client:
             resp = await client.get(
                 'https://safebrowsing.googleapis.com/v5/urls:search',
-                params={'urls': url, 'key': api_key, 'alt': 'json'},
+                params={'key': api_key, 'urls': url},
                 headers={'Accept': 'application/json'},
             )
     except httpx.TimeoutException:
