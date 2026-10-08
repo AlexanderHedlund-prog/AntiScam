@@ -266,6 +266,11 @@ def _google_cache_seconds(value: Any) -> float:
 
 
 async def google_check(url: str, api_key: str | None) -> dict[str, Any]:
+    """Check an explicit URL with Google's Safe Browsing v5 API.
+
+    Errors are described by category, without logging/requesting the user's API key.
+    A failed/malformed lookup is NEVER treated as a clean URL.
+    """
     provider = 'Google Safe Browsing'
     if not api_key:
         return _inactive(provider, 'API-ключ не настроен.')
@@ -276,42 +281,57 @@ async def google_check(url: str, api_key: str | None) -> dict[str, Any]:
         return dict(existing[1])
     if existing:
         del _GOOGLE_CACHE[cache_key]
+
     try:
-        # No page visit: just an authenticated lookup against Google's threat lists.
-        async with httpx.AsyncClient(timeout=8, trust_env=False, follow_redirects=False) as client:
-            resp = await client.get('https://safebrowsing.googleapis.com/v5/urls:search',
-                                    params={'urls': url, 'key': api_key},
-                                    headers={'accept': 'application/json'})
-        if resp.status_code == 429:
-            return {'name': provider, 'status': 'error', 'detections': 0,
-                    'message': 'Достигнут лимит запросов Google Safe Browsing. Повторите позже.'}
-        if resp.status_code in (401, 403):
-            return {'name': provider, 'status': 'error', 'detections': 0,
-                    'message': 'Нет доступа к Google Safe Browsing. Проверьте включение API и ограничения ключа в Google Cloud.'}
-        if resp.status_code != 200:
-            return {'name': provider, 'status': 'error', 'detections': 0,
-                    'message': f'Проверка временно недоступна (HTTP {resp.status_code}).'}
-        body = resp.json()
-        threats = body.get('threats', [])
-        if not isinstance(threats, list):
-            raise ValueError('Invalid threats response')
-        types = sorted({str(t) for match in threats if isinstance(match, dict)
-                        for t in (match.get('threatTypes') or []) if isinstance(t, str)})
-        output = {'name': provider, 'status': 'checked', 'detections': len(threats),
-                  'threats': types,
-                  'message': 'Google сообщает о возможной угрозе по ссылке.' if threats
-                             else 'Совпадений в известных списках Google не найдено.'}
-        duration = _google_cache_seconds(body.get('cacheDuration'))
-        if duration > 0:
-            if len(_GOOGLE_CACHE) >= 512:
-                # Bounded memory on free Render instances.
-                oldest_key = next(iter(_GOOGLE_CACHE))
-                del _GOOGLE_CACHE[oldest_key]
-            _GOOGLE_CACHE[cache_key] = (time.monotonic() + duration, output)
-        return output
-    except (httpx.HTTPError, ValueError, TypeError, KeyError):
+        # Explicitly request JSON so parsing does not depend on provider defaults.
+        # The URL is only sent after the user authorises sending it to services.
+        async with httpx.AsyncClient(timeout=12, trust_env=False, follow_redirects=False) as client:
+            resp = await client.get(
+                'https://safebrowsing.googleapis.com/v5/urls:search',
+                params={'urls': url, 'key': api_key, 'alt': 'json'},
+                headers={'Accept': 'application/json'},
+            )
+    except httpx.TimeoutException:
         return {'name': provider, 'status': 'error', 'detections': 0,
-                'message': 'Не удалось получить достоверный ответ от Google Safe Browsing.'}
+                'message': 'Google Safe Browsing не ответил вовремя (тайм-аут). Повторите позже.'}
+    except httpx.RequestError:
+        return {'name': provider, 'status': 'error', 'detections': 0,
+                'message': 'Ошибка сетевого соединения с Google Safe Browsing.'}
+
+    if resp.status_code == 429:
+        return {'name': provider, 'status': 'error', 'detections': 0,
+                'message': 'Google Safe Browsing ограничил число запросов (HTTP 429). Повторите позже.'}
+    if resp.status_code in (401, 403):
+        return {'name': provider, 'status': 'error', 'detections': 0,
+                'message': f'Google отклонил запрос (HTTP {resp.status_code}). Проверьте ограничения ключа и активацию Safe Browsing API в Google Cloud.'}
+    if resp.status_code != 200:
+        return {'name': provider, 'status': 'error', 'detections': 0,
+                'message': f'Google Safe Browsing: ошибка HTTP {resp.status_code}. Проверка не выполнена.'}
+
+    try:
+        body = resp.json()
+    except ValueError:
+        return {'name': provider, 'status': 'error', 'detections': 0,
+                'message': 'Google Safe Browsing вернул ответ не в формате JSON; проверка не выполнена.'}
+    if not isinstance(body, dict) or not isinstance(body.get('threats', []), list):
+        return {'name': provider, 'status': 'error', 'detections': 0,
+                'message': 'Неожиданный формат ответа Google Safe Browsing; проверка не выполнена.'}
+
+    threats = body.get('threats', [])
+    types = sorted({str(t) for match in threats if isinstance(match, dict)
+                    for t in (match.get('threatTypes') or []) if isinstance(t, str)})
+    output = {'name': provider, 'status': 'checked', 'detections': len(threats),
+              'threats': types,
+              'message': 'Google сообщает о возможной угрозе по ссылке.' if threats
+                         else 'Совпадений в известных списках Google не найдено.'}
+    duration = _google_cache_seconds(body.get('cacheDuration'))
+    if duration > 0:
+        if len(_GOOGLE_CACHE) >= 512:
+            # Bound memory on free Render instances.
+            oldest_key = next(iter(_GOOGLE_CACHE))
+            del _GOOGLE_CACHE[oldest_key]
+        _GOOGLE_CACHE[cache_key] = (time.monotonic() + duration, output)
+    return output
 
 
 async def virustotal_check(url: str, api_key: str | None) -> dict[str, Any]:
@@ -379,6 +399,11 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool) -> dict[st
         risk = "caution"
         title = "Требуется осторожность"
         detail = "Есть признаки риска. Они не доказывают наличие вируса, но ссылку лучше не открывать без дополнительной проверки."
+    elif checked_any and any(p["status"] != "checked" for p in providers):
+        # A clean report from one database cannot make an incomplete check green.
+        risk = "unknown"
+        title = "Проверка выполнена частично"
+        detail = "Одна из баз не ответила или не содержит данных по ссылке. Обнаруженных угроз недостаточно, чтобы подтвердить безопасность."
     elif checked_any:
         risk = "low"
         title = "Известных угроз не обнаружено"
