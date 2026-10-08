@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#302a25">
+  <meta name="description" content="AntiScam — проверьте подозрительную ссылку или файл. Узнайте формат, признаки риска и результаты доступных баз угроз.">
+  <title>AntiScam — проверка ссылок и файлов</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/script.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-row wrap">
+      <a href="/" class="brand" data-route="link" aria-label="AntiScam — проверка ссылок">
+        <span class="brand-logo" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M24 5 41 12v12c0 11-6.5 17.5-17 21C13.5 41.5 7 35 7 24V12L24 5Z" stroke="currentColor" stroke-width="3.1" stroke-linejoin="round"/><path d="m16 24 6 6 11-12" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="brand-name">Anti<span>Scam</span></span>
+      </a>
+      <nav class="header-nav" aria-label="Основная навигация">
+        <a href="/about" data-route="about" id="nav-about">О нас</a>
+        <a href="/file" data-route="file" id="nav-file">Проверить файл</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div id="scan-pages">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-kicker"><span class="pulse" aria-hidden="true"></span> БЕСПЛАТНЫЙ СЕРВИС КИБЕРБЕЗОПАСНОСТИ</div>
+        <h1 id="hero-title">Не рискуй.<br><span>Проверь сначала.</span></h1>
+        <p id="hero-description" class="hero-description">Получил подозрительную ссылку от незнакомца? Узнай, куда она может вести и есть ли известные угрозы — до того, как нажмёшь.</p>
+        <div class="hero-mini"><span>✓ Без регистрации</span><span>✓ Удобно с телефона</span><span>✓ Понятный результат</span></div>
+      </section>
+
+      <section class="scanner-area wrap" aria-label="Инструменты проверки">
+        <div class="scanner-shell">
+          <div class="tool-tabs" role="tablist" aria-label="Выбор способа проверки">
+            <a href="/" data-route="link" id="tab-link" role="tab" aria-controls="link-panel" aria-selected="true" class="tool-tab active"><span aria-hidden="true">↗</span> Проверить ссылку</a>
+            <a href="/file" data-route="file" id="tab-file" role="tab" aria-controls="file-panel" aria-selected="false" class="tool-tab"><span aria-hidden="true">▣</span> Проверить файл</a>
+          </div>
+
+          <section id="link-panel" role="tabpanel" aria-labelledby="tab-link" class="tool-panel">
+            <div class="panel-heading"><div><p class="eyebrow">ПРОВЕРКА № 1</p><h2>Проверка ссылки</h2><p>Вставь адрес из сообщения, письма или соцсети.</p></div><span class="panel-symbol" aria-hidden="true">↗</span></div>
+            <form id="check-form" novalidate>
+              <label class="field-label" for="url-input">Подозрительная ссылка</label>
+              <input id="url-input" name="url" type="url" maxlength="2048" required inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://example.com/document.pdf">
+              <div class="option-stack">
+                <label class="option"><input type="checkbox" id="share-opt"><span>Проверить по внешним базам известных угроз</span></label>
+                <p class="option-note">Если API-ключи подключены, адрес передаётся Google Safe Browsing и VirusTotal. Не проверяй приватные ссылки с секретными токенами.</p>
+                <label class="option"><input type="checkbox" id="headers-opt"><span>Уточнить тип содержимого через HTTP-заголовки</span></label>
+                <p class="option-note">Наш сервер сделает защищённый HEAD-запрос по адресу. Сайт назначения увидит обращение сервера; файл скачиваться не будет.</p>
+              </div>
+              <button id="submit-btn" type="submit" class="action-btn"><span id="submit-text">Проверить ссылку</span><span aria-hidden="true">→</span></button>
+              <p class="microcopy">Проверка URL не запускает и не скачивает содержимое ссылки.</p>
+            </form>
+            <div id="error-box" class="message error hidden" role="alert"></div>
+            <section id="result" class="result-card hidden" aria-label="Результат проверки ссылки" aria-live="polite">
+              <div id="risk-banner" class="risk-banner unknown"><span class="risk-symbol" id="risk-symbol">?</span><div><span class="result-kicker">РЕЗУЛЬТАТ ПРОВЕРКИ</span><h3 id="risk-title"></h3><p id="risk-text"></p></div></div>
+              <div class="result-body"><p class="result-label">ПРОВЕРЯЕМЫЙ АДРЕС</p><p id="result-url" class="value-break"></p>
+                <div class="result-two"><div class="result-tile"><p class="result-label">ПРЕДПОЛАГАЕМОЕ СОДЕРЖИМОЕ</p><h4 id="content-label"></h4><p id="content-basis"></p></div><div class="result-tile"><p class="result-label">HTTP-ЗАГОЛОВКИ</p><h4 id="header-status"></h4><p id="header-message"></p></div></div>
+                <h4 class="list-heading">Внешние базы</h4><div id="provider-list" class="rows"></div><h4 class="list-heading">Признаки риска</h4><div id="signal-list" class="rows"></div>
+                <p id="disclaimer" class="disclaimer"></p>
+              </div>
+            </section>
+          </section>
+
+          <section id="file-panel" role="tabpanel" aria-labelledby="tab-file" class="tool-panel hidden">
+            <div class="panel-heading"><div><p class="eyebrow">ПРОВЕРКА № 2</p><h2>Проверка файла</h2><p>Загрузи полученный файл — не открывай его на устройстве.</p></div><span class="panel-symbol" aria-hidden="true">▣</span></div>
+            <form id="file-form" novalidate>
+              <div class="dropzone" id="dropzone"><span class="drop-icon" aria-hidden="true">⇧</span><h3>Выбери файл для проверки</h3><p>Или перетащи его сюда с компьютера</p><button type="button" class="choose-btn" id="pick-file">Выбрать файл</button><input class="visually-hidden" type="file" id="file-input" aria-label="Файл для проверки"><div id="selected-file" class="selected-file hidden" aria-live="polite"></div></div>
+              <p class="file-guidance">PDF, презентации, документы, архивы и другие файлы · до 8 МБ</p>
+              <label class="option file-option"><input type="checkbox" id="file-share-opt"><span>Искать известные угрозы по SHA-256 в VirusTotal</span></label>
+              <p class="option-note">Отправляется только цифровой отпечаток (хеш) файла, не сам файл. Требуется подключённый API-ключ. Совпадение хеша с известным образцом позволяет получить имеющийся отчёт.</p>
+              <button id="file-submit-btn" type="submit" class="action-btn"><span id="file-submit-text">Проверить файл</span><span aria-hidden="true">→</span></button>
+              <p class="microcopy">Файл анализируется в памяти сервера и не сохраняется. Мы не запускаем его и не отправляем целиком сторонним сервисам.</p>
+            </form>
+            <div id="file-error" class="message error hidden" role="alert"></div>
+            <section id="file-result" class="result-card hidden" aria-live="polite" aria-label="Результат проверки файла">
+              <div id="file-risk-banner" class="risk-banner unknown"><span class="risk-symbol" id="file-risk-symbol">?</span><div><span class="result-kicker">РЕЗУЛЬТАТ ПРОВЕРКИ</span><h3 id="file-risk-title"></h3><p id="file-risk-text"></p></div></div>
+              <div class="result-body"><p class="result-label">ИМЯ ФАЙЛА</p><p id="file-name" class="value-break"></p>
+                <div class="result-two"><div class="result-tile"><p class="result-label">ТИП СОДЕРЖИМОГО</p><h4 id="file-content"></h4><p id="file-basis"></p></div><div class="result-tile"><p class="result-label">РАЗМЕР</p><h4 id="file-size"></h4><p>Файл прочитан без выполнения его содержимого.</p></div></div>
+                <p class="result-label hash-heading">SHA-256</p><p id="file-sha" class="hash"></p>
+                <h4 class="list-heading">Проверка репутации</h4><div id="file-providers" class="rows"></div>
+                <h4 class="list-heading">Замеченные признаки</h4><div id="file-signals" class="rows"></div>
+                <p id="file-disclaimer" class="disclaimer"></p>
+              </div>
+            </section>
+          </section>
+        </div>
+        <p class="under-tool">🛡️ <strong>Честная проверка.</strong> Если информации мало, мы так и сообщим. Отсутствие обнаружений не означает, что файл безопасен.</p>
+      </section>
+
+      <section class="process-section wrap" id="how"><p class="section-label">БЕЗ ЛИШНИХ СЛОЖНОСТЕЙ</p><h2>Как это работает</h2><div class="process-grid"><article class="process-card"><span class="step-count">Этап 1</span><h3>Выбери проверку</h3><p>Нажми «Проверить ссылку» или перейди во вкладку «Проверить файл».</p></article><article class="process-card"><span class="step-count">Этап 2</span><h3>Добавь объект</h3><p>Вставь адрес или загрузи файл до 8 МБ. Ничего запускать не нужно.</p></article><article class="process-card"><span class="step-count">Этап 3</span><h3>Прочитай результат</h3><p>Сравни уровень риска, формат и замеченные признаки перед принятием решения.</p></article></div></section>
+    </div>
+
+    <section id="about-page" class="about-page wrap hidden" aria-labelledby="about-heading">
+      <div class="about-hero"><p class="section-label">О НАШЕМ ПРОЕКТЕ</p><h1 id="about-heading">Безопасность должна<br>быть <em>понятной.</em></h1><p>AntiScam помогает разобраться в подозрительных ссылках и файлах, не обещая невозможного. Мы показываем, что удалось проверить, а где данных недостаточно.</p></div>
+      <div class="about-cards"><article class="process-card"><span class="step-count">Наш подход</span><h2>Открыто о рисках</h2><p>Формат файла и отсутствие совпадений в базах не доказывают, что вирусов нет.</p></article><article class="process-card"><span class="step-count">Конфиденциальность</span><h2>Минимум данных</h2><p>Файлы не сохраняются в проекте. Внешняя проверка ссылки — только после разрешения.</p></article><article class="process-card"><span class="step-count">Для каждого</span><h2>Простыми словами</h2><p>Не нужно знать, что такое домен, исполняемый файл или SHA-256, чтобы понять основные признаки опасности.</p></article></div>
+      <div class="notice-panel"><h2>Несколько важных правил</h2><p>Не вводи пароли и коды из SMS по ссылкам от неизвестных людей. Не запускай подозрительные вложения. Для важных файлов дополнительно используй обновлённый антивирус на своём устройстве.</p><a href="/" class="text-action" data-route="link">Перейти к проверке ссылки →</a></div>
+    </section>
+  </main>
+  <footer class="site-footer"><div class="wrap footer-row"><div><a href="/" data-route="link" class="footer-logo">Anti<span>Scam</span></a><p>Образовательный проект · Проверка не гарантирует отсутствие угроз.</p></div><nav aria-label="Навигация в подвале"><a href="/" data-route="link">Ссылка</a><a href="/file" data-route="file">Файл</a><a href="/about" data-route="about">О проекте</a></nav></div></footer>
+</body>
+</html>
