@@ -265,6 +265,50 @@ def _google_cache_seconds(value: Any) -> float:
     return max(0.0, min(seconds, 86400.0))
 
 
+def _google_failure_hint(response: httpx.Response) -> tuple[str, str]:
+    """Map Google errors to safe, fixed diagnostics; never echo response text.
+
+    Google errors may be JSON or protobuf. The latter often contains ASCII
+    google.rpc.ErrorInfo reason identifiers. We inspect these only internally.
+    Never expose raw URL, API key, request path or upstream payload.
+    """
+    raw_bytes = getattr(response, 'content', b'')
+    raw = raw_bytes[:8192].decode('utf-8', errors='ignore').upper()
+    reason = ''
+    try:
+        payload = response.json()
+        if isinstance(payload, dict) and isinstance(payload.get('error'), dict):
+            err = payload['error']
+            details = err.get('details', [])
+            if isinstance(details, list):
+                for detail in details:
+                    if isinstance(detail, dict) and isinstance(detail.get('reason'), str):
+                        reason = detail['reason'].upper()
+                        break
+            if not reason and isinstance(err.get('status'), str):
+                reason = err['status'].upper()
+    except (ValueError, TypeError):
+        pass
+
+    combined = reason + ' ' + raw
+    if 'API_KEY_INVALID' in combined or 'API KEY NOT VALID' in combined:
+        return ('API_KEY_INVALID', 'Google отклонил API-ключ. Проверьте, что он скопирован из Google Cloud без ошибок.')
+    if 'API_KEY_SERVICE_BLOCKED' in combined or 'SERVICE_DISABLED' in combined or 'API HAS NOT BEEN USED' in combined or 'ACCESS_NOT_CONFIGURED' in combined:
+        return ('API_NOT_ENABLED', 'Доступ к Google Safe Browsing API не разрешён в проекте Google Cloud. Проверьте включение API и ограничения ключа.')
+    if ('API_KEY_HTTP_REFERRER_BLOCKED' in combined or 'API_KEY_IP_ADDRESS_BLOCKED' in combined
+        or 'API_KEY_ANDROID_APP_BLOCKED' in combined or 'API_KEY_IOS_APP_BLOCKED' in combined
+        or 'API_KEY_RESTRICTION' in combined or 'REFERER' in combined and 'BLOCKED' in combined):
+        return ('KEY_RESTRICTION', 'Google отклонил запрос из-за ограничений API-ключа. Для серверного Render не подходит ограничение по сайтам (HTTP referrer).')
+    if 'API_KEY' in combined and ('BLOCKED' in combined or 'RESTRICT' in combined):
+        return ('KEY_RESTRICTION', 'Проверьте ограничения ключа в Google Cloud: ему должен быть разрешён Safe Browsing API и вызов с сервера.')
+    if ('INVALID_ARGUMENT' in combined or 'INVALID URL' in combined or
+        ('INVALID' in combined and 'URLS' in combined)):
+        return ('INVALID_ARGUMENT', 'Google отклонил параметры запроса. Проверьте URL и версию API; нужен Safe Browsing v5 urls:search.')
+    if response.status_code == 400:
+        return ('HTTP_400_UNCLASSIFIED', 'Google вернул HTTP 400. Точная причина не распознана: проверьте действительность ключа, Safe Browsing API и ограничения в Google Cloud.')
+    return (f'HTTP_{response.status_code}', f'Google Safe Browsing: ошибка HTTP {response.status_code}. Проверка не выполнена.')
+
+
 async def google_check(url: str, api_key: str | None) -> dict[str, Any]:
     """Check an explicit URL with Google's Safe Browsing v5 API.
 
@@ -302,11 +346,13 @@ async def google_check(url: str, api_key: str | None) -> dict[str, Any]:
         return {'name': provider, 'status': 'error', 'detections': 0,
                 'message': 'Google Safe Browsing ограничил число запросов (HTTP 429). Повторите позже.'}
     if resp.status_code in (401, 403):
+        diagnostic_code, explanation = _google_failure_hint(resp)
         return {'name': provider, 'status': 'error', 'detections': 0,
-                'message': f'Google отклонил запрос (HTTP {resp.status_code}). Проверьте ограничения ключа и активацию Safe Browsing API в Google Cloud.'}
+                'diagnostic_code': diagnostic_code, 'message': explanation}
     if resp.status_code != 200:
+        diagnostic_code, explanation = _google_failure_hint(resp)
         return {'name': provider, 'status': 'error', 'detections': 0,
-                'message': f'Google Safe Browsing: ошибка HTTP {resp.status_code}. Проверка не выполнена.'}
+                'diagnostic_code': diagnostic_code, 'message': explanation}
 
     try:
         body = resp.json()
