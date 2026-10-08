@@ -18,6 +18,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from app.reputation_quota import take_virustotal_slot
+from app.safe_browsing_wire import decode_search_urls
 from urllib.parse import unquote, urljoin, urlsplit
 
 import aiohttp
@@ -358,8 +359,14 @@ async def google_check(url: str, api_key: str | None) -> dict[str, Any]:
     try:
         body = resp.json()
     except ValueError:
-        return {'name': provider, 'status': 'error', 'detections': 0,
-                'message': 'Google Safe Browsing вернул ответ не в формате JSON; проверка не выполнена.'}
+        # v5 sometimes returns its native protobuf wire representation,
+        # regardless of the requested Accept header. Never treat an empty or
+        # malformed body as a clean URL.
+        try:
+            body = decode_search_urls(resp.content)
+        except (ValueError, AttributeError, TypeError):
+            return {'name': provider, 'status': 'error', 'detections': 0,
+                    'message': 'Google Safe Browsing вернул неожиданный формат ответа; проверка не выполнена.'}
     if not isinstance(body, dict) or not isinstance(body.get('threats', []), list):
         return {'name': provider, 'status': 'error', 'detections': 0,
                 'message': 'Неожиданный формат ответа Google Safe Browsing; проверка не выполнена.'}
