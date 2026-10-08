@@ -5,3 +5,6 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
 
 @media(max-width:350px){.header-nav a[href="/file"]{display:none}.header-row{gap:8px}.brand{font-size:20px}}
+
+.google-advisory{display:inline-block;color:#e2f8d8;text-decoration:underline;margin-top:8px;font-size:13px;line-height:1.5;text-underline-offset:3px}
+.google-advisory:hover{color:white}

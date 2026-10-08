@@ -67,7 +67,18 @@ function providerRow(container, provider) {
   const content = document.createElement('div');
   const title = document.createElement('strong'); title.textContent = provider.name;
   const description = document.createElement('p'); description.textContent = provider.message;
-  content.append(title, description); node.append(dot, content); container.appendChild(node);
+  content.append(title, description);
+  // Required attribution applies only when a Google Safe Browsing match is shown.
+  if (provider.name === 'Google Safe Browsing' && provider.status === 'checked' && Number(provider.detections) > 0) {
+    const advisory = document.createElement('a');
+    advisory.href = 'https://developers.google.com/safe-browsing/v4/advisory';
+    advisory.target = '_blank';
+    advisory.rel = 'noopener noreferrer';
+    advisory.className = 'google-advisory';
+    advisory.textContent = 'Advisory provided by Google — о возможных угрозах';
+    content.append(advisory);
+  }
+  node.append(dot, content); container.appendChild(node);
 }
 
 function signalRow(container, signal) {

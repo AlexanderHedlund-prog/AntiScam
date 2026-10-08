@@ -15,6 +15,8 @@ from typing import Any
 
 import httpx
 
+from app.reputation_quota import take_virustotal_slot
+
 MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_MULTIPART_BYTES = MAX_FILE_BYTES + 1024 * 1024
 SCRIPT_EXT = {'.exe', '.dll', '.scr', '.bat', '.cmd', '.vbs', '.vbe', '.ps1', '.js', '.jse', '.hta', '.jar', '.msi', '.apk', '.lnk', '.sh', '.py', '.com'}
@@ -148,12 +150,18 @@ async def virustotal_hash_lookup(digest: str, consent: bool) -> dict[str, Any]:
     key = os.getenv('VIRUSTOTAL_API_KEY', '').strip()
     if not key:
         return {'name': provider, 'status': 'skipped', 'message': 'API-ключ VirusTotal ещё не подключён.'}
+    if not await take_virustotal_slot():
+        return {'name': provider, 'status': 'error', 'message': 'Лимит бесплатных проверок VirusTotal. Повторите примерно через минуту.'}
     try:
         async with httpx.AsyncClient(timeout=10, trust_env=False, follow_redirects=False) as client:
             resp = await client.get(f'https://www.virustotal.com/api/v3/files/{digest}',
                                     headers={'x-apikey': key, 'accept': 'application/json'})
         if resp.status_code == 404:
             return {'name': provider, 'status': 'no_data', 'message': 'В базе нет отчёта для этого SHA-256. Файл не отправлялся.'}
+        if resp.status_code == 429:
+            return {'name': provider, 'status': 'error', 'message': 'Превышен лимит VirusTotal.'}
+        if resp.status_code in (401, 403):
+            return {'name': provider, 'status': 'error', 'message': 'Ключ VirusTotal отклонён: проверьте права API.'}
         if resp.status_code != 200:
             return {'name': provider, 'status': 'error', 'message': f'База временно недоступна (HTTP {resp.status_code}).'}
         stats = resp.json().get('data', {}).get('attributes', {}).get('last_analysis_stats', {})

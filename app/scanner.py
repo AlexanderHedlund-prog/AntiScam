@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import time
 import ipaddress
 import os
 import re
@@ -14,6 +16,8 @@ import socket
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
+
+from app.reputation_quota import take_virustotal_slot
 from urllib.parse import unquote, urljoin, urlsplit
 
 import aiohttp
@@ -245,54 +249,102 @@ def _inactive(provider: str, why: str) -> dict[str, Any]:
     return {"name": provider, "status": "skipped", "message": why, "detections": 0}
 
 
-async def google_check(url: str, api_key: str | None) -> dict[str, Any]:
-    if not api_key:
-        return _inactive("Google Safe Browsing", "API-ключ не настроен.")
-    payload = {
-        "client": {"clientId": "antiscam-community", "clientVersion": "0.1.0"},
-        "threatInfo": {
-            "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
-            "platformTypes": ["ANY_PLATFORM"], "threatEntryTypes": ["URL"],
-            "threatEntries": [{"url": url}],
-        },
-    }
+# v5 URL Lookup requires respecting server-provided cacheDuration, including negatives.
+# Cache keys are digests; no full URLs or access tokens are retained in memory.
+_GOOGLE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def _google_cache_seconds(value: Any) -> float:
+    if not isinstance(value, str) or not value.endswith('s'):
+        return 0.0
     try:
+        seconds = float(value[:-1])
+    except ValueError:
+        return 0.0
+    # Keep official cache duration (at most 24h) without inventing a longer TTL.
+    return max(0.0, min(seconds, 86400.0))
+
+
+async def google_check(url: str, api_key: str | None) -> dict[str, Any]:
+    provider = 'Google Safe Browsing'
+    if not api_key:
+        return _inactive(provider, 'API-ключ не настроен.')
+    cache_key = hashlib.sha256((api_key + '\0' + url).encode()).hexdigest()
+    now = time.monotonic()
+    existing = _GOOGLE_CACHE.get(cache_key)
+    if existing and existing[0] > now:
+        return dict(existing[1])
+    if existing:
+        del _GOOGLE_CACHE[cache_key]
+    try:
+        # No page visit: just an authenticated lookup against Google's threat lists.
         async with httpx.AsyncClient(timeout=8, trust_env=False, follow_redirects=False) as client:
-            resp = await client.post("https://safebrowsing.googleapis.com/v4/threatMatches:find",
-                                     params={"key": api_key}, json=payload)
+            resp = await client.get('https://safebrowsing.googleapis.com/v5/urls:search',
+                                    params={'urls': url, 'key': api_key},
+                                    headers={'accept': 'application/json'})
+        if resp.status_code == 429:
+            return {'name': provider, 'status': 'error', 'detections': 0,
+                    'message': 'Достигнут лимит запросов Google Safe Browsing. Повторите позже.'}
+        if resp.status_code in (401, 403):
+            return {'name': provider, 'status': 'error', 'detections': 0,
+                    'message': 'Нет доступа к Google Safe Browsing. Проверьте включение API и ограничения ключа в Google Cloud.'}
         if resp.status_code != 200:
-            return {"name": "Google Safe Browsing", "status": "error", "message": f"Проверка недоступна (HTTP {resp.status_code}).", "detections": 0}
-        matches = resp.json().get("matches", [])
-        types = sorted({str(m.get("threatType", "UNKNOWN")) for m in matches})
-        return {"name": "Google Safe Browsing", "status": "checked", "detections": len(matches),
-                "threats": types, "message": "Совпадение в списках угроз." if matches else "Совпадений в известных списках не найдено."}
+            return {'name': provider, 'status': 'error', 'detections': 0,
+                    'message': f'Проверка временно недоступна (HTTP {resp.status_code}).'}
+        body = resp.json()
+        threats = body.get('threats', [])
+        if not isinstance(threats, list):
+            raise ValueError('Invalid threats response')
+        types = sorted({str(t) for match in threats if isinstance(match, dict)
+                        for t in (match.get('threatTypes') or []) if isinstance(t, str)})
+        output = {'name': provider, 'status': 'checked', 'detections': len(threats),
+                  'threats': types,
+                  'message': 'Google сообщает о возможной угрозе по ссылке.' if threats
+                             else 'Совпадений в известных списках Google не найдено.'}
+        duration = _google_cache_seconds(body.get('cacheDuration'))
+        if duration > 0:
+            if len(_GOOGLE_CACHE) >= 512:
+                # Bounded memory on free Render instances.
+                oldest_key = next(iter(_GOOGLE_CACHE))
+                del _GOOGLE_CACHE[oldest_key]
+            _GOOGLE_CACHE[cache_key] = (time.monotonic() + duration, output)
+        return output
     except (httpx.HTTPError, ValueError, TypeError, KeyError):
-        return {"name": "Google Safe Browsing", "status": "error", "message": "Сервис временно недоступен.", "detections": 0}
+        return {'name': provider, 'status': 'error', 'detections': 0,
+                'message': 'Не удалось получить достоверный ответ от Google Safe Browsing.'}
 
 
 async def virustotal_check(url: str, api_key: str | None) -> dict[str, Any]:
+    provider = 'VirusTotal'
     if not api_key:
-        return _inactive("VirusTotal", "API-ключ не настроен.")
-    url_id = base64.urlsafe_b64encode(url.encode()).decode().strip("=")
+        return _inactive(provider, 'API-ключ не настроен.')
+    if not await take_virustotal_slot():
+        return {'name': provider, 'status': 'error', 'detections': 0,
+                'message': 'Лимит бесплатных проверок VirusTotal. Повторите примерно через минуту.'}
+    url_id = base64.urlsafe_b64encode(url.encode()).decode().strip('=')
     try:
         async with httpx.AsyncClient(timeout=8, trust_env=False, follow_redirects=False) as client:
-            resp = await client.get(f"https://www.virustotal.com/api/v3/urls/{url_id}",
-                                    headers={"x-apikey": api_key, "accept": "application/json"})
+            resp = await client.get(f'https://www.virustotal.com/api/v3/urls/{url_id}',
+                                    headers={'x-apikey': api_key, 'accept': 'application/json'})
         if resp.status_code == 404:
-            return {"name": "VirusTotal", "status": "no_data", "message": "В базе нет готового отчёта; новая проверка не запускалась.", "detections": 0}
+            return {'name': provider, 'status': 'no_data', 'message': 'Нет готового отчёта по этому URL.', 'detections': 0}
+        if resp.status_code == 429:
+            return {'name': provider, 'status': 'error', 'message': 'Превышен лимит VirusTotal.', 'detections': 0}
+        if resp.status_code in (401, 403):
+            return {'name': provider, 'status': 'error', 'message': 'Ключ VirusTotal отклонён: проверьте права API.', 'detections': 0}
         if resp.status_code != 200:
-            return {"name": "VirusTotal", "status": "error", "message": f"Проверка недоступна (HTTP {resp.status_code}).", "detections": 0}
-        stats = resp.json().get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
+            return {'name': provider, 'status': 'error', 'message': f'Проверка недоступна (HTTP {resp.status_code}).', 'detections': 0}
+        stats = resp.json().get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
         if not stats:
-            return {"name": "VirusTotal", "status": "no_data", "message": "Данных анализа пока нет.", "detections": 0}
-        malicious = max(0, int(stats.get("malicious", 0)))
-        suspicious = max(0, int(stats.get("suspicious", 0)))
+            return {'name': provider, 'status': 'no_data', 'message': 'Отчёт найден, но результатов анализа нет.', 'detections': 0}
+        malicious = max(0, int(stats.get('malicious', 0)))
+        suspicious = max(0, int(stats.get('suspicious', 0)))
         total = sum(max(0, int(v)) for v in stats.values() if isinstance(v, int))
-        return {"name": "VirusTotal", "status": "checked", "detections": malicious,
-                "suspicious": suspicious, "total": total,
-                "message": f"Оценки антивирусных движков: {malicious} опасных, {suspicious} подозрительных из {total}."}
+        return {'name': provider, 'status': 'checked', 'detections': malicious,
+                'suspicious': suspicious, 'total': total,
+                'message': f'Готовый отчёт: {malicious} опасных, {suspicious} подозрительных из {total}.'}
     except (httpx.HTTPError, ValueError, TypeError, KeyError):
-        return {"name": "VirusTotal", "status": "error", "message": "Сервис временно недоступен.", "detections": 0}
+        return {'name': provider, 'status': 'error', 'message': 'Сервис временно недоступен.', 'detections': 0}
 
 
 async def analyse_url(raw: str, consent: bool, inspect_headers: bool) -> dict[str, Any]:
@@ -321,8 +373,8 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool) -> dict[st
     medium_signal = any(s["severity"] == "medium" for s in signals)
     if google_hit or vt_mal >= 2:
         risk = "danger"
-        title = "Обнаружены известные угрозы"
-        detail = "Один или несколько сервисов сообщили об угрозе. Не открывайте эту ссылку."
+        title = "Есть сообщения о возможной угрозе"
+        detail = "Один или несколько сервисов указали на потенциальную опасность. Лучше не открывать эту ссылку."
     elif vt_mal > 0 or vt_susp > 0 or high_signal or medium_signal:
         risk = "caution"
         title = "Требуется осторожность"
@@ -345,5 +397,5 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool) -> dict[st
         "signals": signals,
         "providers": providers,
         "header_probe": {"status": probe["status"], "message": probe["message"]},
-        "disclaimer": "Проверяется репутация URL и заявленный формат, а не наличие вируса внутри скачиваемого файла.",
+        "disclaimer": "Проверяется репутация URL и заявленный формат, а не наличие вируса внутри скачиваемого файла. Базы угроз могут ошибаться в обе стороны.",
     }

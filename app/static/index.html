@@ -47,7 +47,7 @@
               <input id="url-input" name="url" type="url" maxlength="2048" required inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://example.com/document.pdf">
               <div class="option-stack">
                 <label class="option"><input type="checkbox" id="share-opt"><span>Проверить по внешним базам известных угроз</span></label>
-                <p class="option-note">Если API-ключи подключены, адрес передаётся Google Safe Browsing и VirusTotal. Не проверяй приватные ссылки с секретными токенами.</p>
+                <p class="option-note">При согласии адрес передаётся Google Safe Browsing и VirusTotal. Сторонние сервисы могут сохранять сведения о запросе. Не проверяй приватные ссылки, содержащие токены или личные данные.</p>
                 <label class="option"><input type="checkbox" id="headers-opt"><span>Уточнить тип содержимого через HTTP-заголовки</span></label>
                 <p class="option-note">Наш сервер сделает защищённый HEAD-запрос по адресу. Сайт назначения увидит обращение сервера; файл скачиваться не будет.</p>
               </div>
@@ -95,11 +95,12 @@
     </div>
 
     <section id="about-page" class="about-page wrap hidden" aria-labelledby="about-heading">
-      <div class="about-hero"><p class="section-label">О НАШЕМ ПРОЕКТЕ</p><h1 id="about-heading">Безопасность должна<br>быть <em>понятной.</em></h1><p>AntiScam помогает разобраться в подозрительных ссылках и файлах, не обещая невозможного. Мы показываем, что удалось проверить, а где данных недостаточно.</p></div>
+      <div class="about-hero"><p class="section-label">О НАШЕМ ПРОЕКТЕ</p><h1 id="about-heading">Безопасность должна<br>быть <em>понятной.</em></h1><p>AntiScam помогает разобраться в подозрительных ссылках и файлах, не обещая невозможного. Мы показываем, что удалось проверить, а где данных недостаточно. Базы Google Safe Browsing и VirusTotal могут пропускать новые угрозы и ошибочно отмечать безопасные ссылки.</p></div>
       <div class="about-cards"><article class="process-card"><span class="step-count">Наш подход</span><h2>Открыто о рисках</h2><p>Формат файла и отсутствие совпадений в базах не доказывают, что вирусов нет.</p></article><article class="process-card"><span class="step-count">Конфиденциальность</span><h2>Минимум данных</h2><p>Файлы не сохраняются в проекте. Внешняя проверка ссылки — только после разрешения.</p></article><article class="process-card"><span class="step-count">Для каждого</span><h2>Простыми словами</h2><p>Не нужно знать, что такое домен, исполняемый файл или SHA-256, чтобы понять основные признаки опасности.</p></article></div>
       <div class="notice-panel"><h2>Несколько важных правил</h2><p>Не вводи пароли и коды из SMS по ссылкам от неизвестных людей. Не запускай подозрительные вложения. Для важных файлов дополнительно используй обновлённый антивирус на своём устройстве.</p><a href="/" class="text-action" data-route="link">Перейти к проверке ссылки →</a></div>
     </section>
   </main>
   <footer class="site-footer"><div class="wrap footer-row"><div><a href="/" data-route="link" class="footer-logo">Anti<span>Scam</span></a><p>Образовательный проект · Проверка не гарантирует отсутствие угроз.</p></div><nav aria-label="Навигация в подвале"><a href="/" data-route="link">Ссылка</a><a href="/file" data-route="file">Файл</a><a href="/about" data-route="about">О проекте</a></nav></div></footer>
+
 </body>
 </html>

@@ -1,0 +1,72 @@
+AntiScam v0.3 — подключение VirusTotal и Google Safe Browsing (Render)
+==================================================================
+
+НЕ ПРИСЫЛАЙТЕ КЛЮЧИ В ЧАТ. НЕ ЗАГРУЖАЙТЕ ИХ НА GITHUB.
+
+1. ОБНОВИТЕ GITHUB
+   Откройте репозиторий https://github.com/AlexanderHedlund-prog/AntiScam
+   Замените файлы, изменившиеся в v0.3, и добавьте новые.
+   Самый простой чистый способ — загрузить содержимое архива с
+   заменой файлов (не помещая в дополнительную папку AntiScam_v0.3).
+   В корне проекта должны быть app/, requirements.txt, render.yaml.
+   Если GitHub через браузер не даёт заменить одинаковые имена, используйте
+   GitHub Desktop (Clone -> replace files in local folder -> Commit -> Push).
+
+2. ПОЛУЧИТЕ КЛЮЧ VIRUSTOTAL
+   https://www.virustotal.com/gui/join-us
+   Создайте учётную запись, найдите API Key в профиле.
+   Не выкладывайте полученный ключ публично.
+   Лимит публичного API: обычно 4 запроса/мин и иные квоты.
+   AntiScam ограничивает число запросов примерно до 3/мин на процесс.
+   Отчёт о URL появится только если он уже известен VirusTotal.
+
+3. ПОЛУЧИТЕ КЛЮЧ GOOGLE SAFE BROWSING
+   https://console.cloud.google.com/apis/library/safebrowsing.googleapis.com
+   Войдите в Google, создайте (или выберите) проект и включите
+   API "Safe Browsing APIs". Затем откройте:
+   https://console.cloud.google.com/apis/credentials
+   Нажмите Create credentials -> API key.
+   Для ключа настройте API restrictions: Safe Browsing APIs.
+   Не задавайте HTTP referrer restriction: запрос идёт С СЕРВЕРА Render,
+   а не из браузера. Ограничение по IP возможно только при наличии
+   фиксированного исходящего IP, который обычно отсутствует на бесплатном хостинге.
+   Google Safe Browsing разрешён только для некоммерческих проектов.
+
+4. НАСТРОЙТЕ RENDER
+   https://dashboard.render.com
+   Выберите уже созданный Web Service (ваш AntiScam).
+   В меню слева откройте Environment -> Add Environment Variable.
+   Добавьте ДВЕ пары (Key -> Value):
+
+   VIRUSTOTAL_API_KEY              -> [секретный ключ VirusTotal]
+   GOOGLE_SAFE_BROWSING_API_KEY    -> [секретный ключ Google]
+
+   НЕ пишите квадратные скобки — замените их самим ключом.
+   Нажмите Save, deploy (или Save, rebuild, and deploy).
+   Дождитесь статуса Live. Render хранит значения серверных переменных.
+
+5. ПРОВЕРЬТЕ
+   Сайт: https://antiscam-xj4u.onrender.com/
+   Статус сервера: https://antiscam-xj4u.onrender.com/health
+   Статус подключений: https://antiscam-xj4u.onrender.com/api/providers
+   Ожидается google_safe_browsing.configured=true и virustotal.configured=true.
+   Эта страница показывает НАЛИЧИЕ ключей, а не факт успешной авторизации.
+   На главной вставьте https://example.com и поставьте галочку
+   "Проверить по внешним базам известных угроз".
+   Статусы Google Safe Browsing и VirusTotal должны показывать результат
+   'checked' либо 'no_data' (но не 'skipped' / 'error').
+   Если встречается HTTP 403 — проверьте ограничение и включение API.
+   Если HTTP 429 — ждите восстановления квоты.
+
+ВАЖНО О ПРИВАТНОСТИ
+   Не проверяйте личные ссылки с токенами или чувствительными данными.
+   VirusTotal предупреждает, что запрошенные индикаторы могут попасть
+   в доступный сообществу набор данных. Из пользователя должен быть
+   получен явный выбор на обращение к внешним сервисам.
+   Файлы НЕ отправляются в VirusTotal: только хеш SHA-256.
+   Это не полноценное сканирование файла антивирусом и не гарантия безопасности.
+
+ССЫЛКИ НА ДОКУМЕНТАЦИЮ
+   Google: https://developers.google.com/safe-browsing/reference/rest/v5/urls/search
+   VirusTotal: https://docs.virustotal.com/docs/api-overview
+   Render: https://render.com/docs/configure-environment-variables

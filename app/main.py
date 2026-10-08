@@ -18,7 +18,7 @@ from app.file_scanner import MAX_FILE_BYTES, MAX_MULTIPART_BYTES, analyse_file
 
 load_dotenv()
 BASE = Path(__file__).resolve().parent
-app = FastAPI(title='AntiScam API', version='0.2.0', docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title='AntiScam API', version='0.3.0', docs_url=None, redoc_url=None, openapi_url=None)
 app.mount('/assets', StaticFiles(directory=BASE / 'static'), name='assets')
 _LIMIT = int(os.getenv('RATE_LIMIT_PER_MINUTE', '12'))
 _TRAFFIC: dict[str, deque[float]] = defaultdict(deque)
@@ -82,7 +82,17 @@ async def index():
 
 @app.get('/health')
 async def health():
-    return {'status': 'ok', 'service': 'AntiScam', 'version': '0.2.0'}
+    return {'status': 'ok', 'service': 'AntiScam', 'version': '0.3.0'}
+
+
+@app.get('/api/providers')
+async def providers_status():
+    """Status of integrations, not proof that external providers are reachable."""
+    return {
+        'google_safe_browsing': {'configured': bool(os.getenv('GOOGLE_SAFE_BROWSING_API_KEY', '').strip()), 'version': 'v5'},
+        'virustotal': {'configured': bool(os.getenv('VIRUSTOTAL_API_KEY', '').strip())},
+        'note': 'configured означает только наличие ключа; действительность ключа подтверждается при проверке ссылки.',
+    }
 
 
 @app.post('/api/scan')
