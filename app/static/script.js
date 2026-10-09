@@ -195,10 +195,33 @@ $('check-form').addEventListener('submit', async (event) => {
 });
 
 let selectedFile = null;
+let lastFileReport = null;
+// The server owns the opt-in upload policy; do not enable a risky action until confirmed.
+async function loadFileUploadCapability() {
+  try {
+    const data = await requestJSON('/api/providers', {}, 9000);
+    const active = Boolean(data.virustotal?.configured && data.virustotal?.new_file_upload_enabled);
+    $('vt-upload-controls').classList.toggle('hidden', !active);
+    $('vt-upload-disabled-note').classList.toggle('hidden', active);
+    $('file-vt-upload-opt').disabled = !active;
+  } catch (_) {
+    $('vt-upload-controls').classList.add('hidden');
+    $('vt-upload-disabled-note').classList.remove('hidden');
+    $('file-vt-upload-opt').disabled = true;
+  }
+}
+loadFileUploadCapability();
+$('file-vt-upload-opt').addEventListener('change', () => {
+  if ($('file-vt-upload-opt').checked) $('file-share-opt').checked = true;
+});
+$('file-share-opt').addEventListener('change', () => {
+  if (!$('file-share-opt').checked) $('file-vt-upload-opt').checked = false;
+});
 const MAX_SIZE = 8 * 1024 * 1024;
 const readableSize = (n) => n < 1024 ? n + ' Б' : n < 1024*1024 ? (n / 1024).toFixed(1) + ' КБ' : (n / (1024*1024)).toFixed(2) + ' МБ';
 function chooseFile(file) {
   $('file-error').classList.add('hidden'); $('file-result').classList.add('hidden');
+  lastFileReport = null;
   selectedFile = file || null;
   const summary = $('selected-file');
   summary.classList.toggle('hidden', !selectedFile);
@@ -218,6 +241,63 @@ const dz = $('dropzone');
   event.preventDefault(); dz.classList.remove('drag-over');
 }));
 dz.addEventListener('drop', (event) => chooseFile(event.dataTransfer?.files?.[0]));
+function drawVTProgress(data) {
+  const token = data?.vt_analysis_token;
+  const hasToken = Boolean(token && data.providers?.[0]?.status === 'pending');
+  $('vt-scan-progress').classList.toggle('hidden', !hasToken);
+  $('vt-status-btn').disabled = !hasToken;
+  if (hasToken) setText('vt-scan-progress-note', data.providers[0].message);
+}
+
+function redrawFileReport(data) {
+  setText('file-name', data.filename);
+  setText('file-size', readableSize(data.size));
+  setText('file-content', data.content.label);
+  setText('file-basis', data.content.basis);
+  setText('file-sha', data.sha256);
+  drawFileDetails(data);
+  drawQuickVerdict(data, 'file');
+  drawVTProgress(data);
+  drawReport(data, {banner:'file-risk-banner', symbol:'file-risk-symbol', title:'file-risk-title', detail:'file-risk-text', providers:'file-providers', signals:'file-signals', disclaimer:'file-disclaimer', result:'file-result'});
+}
+
+$('vt-status-btn').addEventListener('click', async () => {
+  if (!lastFileReport?.vt_analysis_token) return;
+  $('vt-status-btn').disabled = true;
+  setText('vt-scan-progress-note', 'Запрашиваем результат VirusTotal…');
+  try {
+    const latest = await requestJSON('/api/vt-file-status', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: lastFileReport.vt_analysis_token})
+    }, 20000);
+    lastFileReport.providers[0] = latest;
+    lastFileReport.checks[3].result = latest.message;
+    lastFileReport.checks[3].status = latest.status;
+    lastFileReport.vt_analysis_token = latest.analysis_token || null;
+    if (latest.status === 'checked') {
+      if ((latest.detections || 0) >= 2) {
+        lastFileReport.risk = 'danger'; lastFileReport.title = 'Антивирусы обнаружили известную угрозу';
+        lastFileReport.detail = 'Новый отчёт VirusTotal содержит обнаружения. Не открывайте файл.';
+        lastFileReport.quick_verdict = {state:'danger', answer:'Есть обнаружения вредоносности', note:'VirusTotal обнаружил угрозы; подтверждение не гарантирует 100% точность каждой системы.'};
+      } else if ((latest.detections || 0) || (latest.suspicious || 0)) {
+        if (lastFileReport.risk !== 'danger') {
+          lastFileReport.risk = 'caution'; lastFileReport.title = 'Есть повод насторожиться';
+          lastFileReport.detail = 'Новый отчёт VirusTotal содержит подозрительные результаты.';
+          lastFileReport.quick_verdict = {state:'caution', answer:'Возможно опасно — вирус не подтверждён', note:'Часть систем отметила подозрительные признаки. Не открывайте файл.'};
+        }
+      } else if (lastFileReport.risk === 'unknown') {
+        lastFileReport.risk = 'low'; lastFileReport.title = 'Известных угроз не обнаружено';
+        lastFileReport.detail = 'Новый отчёт VirusTotal не содержит известных обнаружений. Это не гарантия безопасности.';
+        lastFileReport.quick_verdict = {state:'low', answer:'Известных угроз не обнаружено', note:'Результат проверки по доступным антивирусам; неизвестные угрозы могут остаться.'};
+      }
+    }
+    redrawFileReport(lastFileReport);
+  } catch (error) {
+    setText('vt-scan-progress-note', 'Не удалось получить отчёт: ' + error.message);
+    $('vt-status-btn').disabled = false;
+  }
+});
+
 function drawFileDetails(data) {
   const checks = $('file-checks'); checks.replaceChildren();
   for (const check of data.checks || []) {
@@ -253,17 +333,12 @@ $('file-form').addEventListener('submit', async (event) => {
   const form = new FormData();
   form.append('file', selectedFile, selectedFile.name);
   form.append('check_hash', String($('file-share-opt').checked));
+  form.append('submit_to_vt', String($('file-vt-upload-opt').checked && !$('file-vt-upload-opt').disabled));
   $('file-submit-btn').disabled = true; setText('file-submit-text', 'Анализируем файл…');
   try {
-    const data = await requestJSON('/api/scan-file', {method:'POST', body:form}, 30000);
-    setText('file-name', data.filename);
-    setText('file-size', readableSize(data.size));
-    setText('file-content', data.content.label);
-    setText('file-basis', data.content.basis);
-    setText('file-sha', data.sha256);
-    drawFileDetails(data);
-    drawQuickVerdict(data, 'file');
-    drawReport(data, {banner:'file-risk-banner', symbol:'file-risk-symbol', title:'file-risk-title', detail:'file-risk-text', providers:'file-providers', signals:'file-signals', disclaimer:'file-disclaimer', result:'file-result'});
+    const data = await requestJSON('/api/scan-file', {method:'POST', body:form}, 50000);
+    lastFileReport = data;
+    redrawFileReport(data);
   } catch (error) {
     displayError('file-error', error.name === 'AbortError' ? 'Превышено время ожидания. Попробуйте ещё раз.' : 'Не удалось проверить: ' + error.message);
   } finally { $('file-submit-btn').disabled = false; setText('file-submit-text', 'Проверить файл'); }

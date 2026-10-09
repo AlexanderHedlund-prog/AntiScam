@@ -16,10 +16,11 @@ from pydantic import BaseModel, Field
 from app.scanner import URLValidationError, analyse_url
 from app.file_scanner import MAX_FILE_BYTES, MAX_MULTIPART_BYTES, analyse_file
 from app.clamav_engine import configured as clamav_configured
+from app.vt_file_submission import uploads_enabled, check_analysis
 
 load_dotenv()
 BASE = Path(__file__).resolve().parent
-app = FastAPI(title='AntiScam API', version='0.8.0', docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title='AntiScam API', version='0.9.0', docs_url=None, redoc_url=None, openapi_url=None)
 app.mount('/assets', StaticFiles(directory=BASE / 'static'), name='assets')
 _LIMIT = int(os.getenv('RATE_LIMIT_PER_MINUTE', '12'))
 _TRAFFIC: dict[str, deque[float]] = defaultdict(deque)
@@ -31,6 +32,10 @@ class ScanRequest(BaseModel):
     share_with_services: bool = False
     inspect_headers: bool = False
     inspect_page: bool = False
+
+
+class VTStatusRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=128, pattern=r'^[a-zA-Z0-9_\-]+$')
 
 
 @app.middleware('http')
@@ -84,7 +89,7 @@ async def index():
 
 @app.get('/health')
 async def health():
-    return {'status': 'ok', 'service': 'AntiScam', 'version': '0.8.0'}
+    return {'status': 'ok', 'service': 'AntiScam', 'version': '0.9.0'}
 
 
 @app.get('/api/providers')
@@ -92,7 +97,7 @@ async def providers_status():
     """Status of integrations, not proof that external providers are reachable."""
     return {
         'google_safe_browsing': {'configured': bool(os.getenv('GOOGLE_SAFE_BROWSING_API_KEY', '').strip()), 'version': 'v5'},
-        'virustotal': {'configured': bool(os.getenv('VIRUSTOTAL_API_KEY', '').strip())},
+        'virustotal': {'configured': bool(os.getenv('VIRUSTOTAL_API_KEY', '').strip()), 'new_file_upload_enabled': uploads_enabled()},
         'clamav': {'configured': clamav_configured(), 'note': 'Требует отдельного локально доступного clamd; наличие сокета не подтверждает его работоспособность.'},
         'note': 'configured означает только наличие ключа; действительность ключа подтверждается при проверке ссылки.',
     }
@@ -111,11 +116,15 @@ async def scan(payload: ScanRequest, request: Request):
 
 
 @app.post('/api/scan-file')
-async def scan_file(request: Request, file: UploadFile = File(...), check_hash: bool = Form(False)):
+async def scan_file(request: Request, file: UploadFile = File(...), check_hash: bool = Form(False), submit_to_vt: bool = Form(False)):
     ip = request.client.host if request.client else 'unknown'
     if not await check_rate_limit(ip):
         raise HTTPException(status_code=429, detail='Слишком много проверок. Повторите попытку через минуту.')
-    # Small bounded reads; never execute, unpack, persist, or forward file bytes.
+    if submit_to_vt and not check_hash:
+        raise HTTPException(status_code=422, detail='Для отправки нового файла необходимо согласие на проверку VirusTotal по SHA-256.')
+    if submit_to_vt and not uploads_enabled():
+        raise HTTPException(status_code=403, detail='Отправка новых файлов в VirusTotal отключена владельцем сайта.')
+    # Small bounded reads; never execute, persist or forward bytes unless separately permitted.
     data = bytearray()
     try:
         while chunk := await file.read(65536):
@@ -124,7 +133,15 @@ async def scan_file(request: Request, file: UploadFile = File(...), check_hash: 
             data.extend(chunk)
         if not data:
             raise HTTPException(status_code=422, detail='Нельзя проверить пустой файл.')
-        return await analyse_file(bytes(data), file.filename or 'без_названия', check_hash)
+        return await analyse_file(bytes(data), file.filename or 'без_названия', check_hash, submit_to_vt=submit_to_vt)
     finally:
         await file.close()
         data.clear()
+
+
+@app.post('/api/vt-file-status')
+async def vt_file_status(payload: VTStatusRequest, request: Request):
+    ip = request.client.host if request.client else 'unknown'
+    if not await check_rate_limit(ip):
+        raise HTTPException(status_code=429, detail='Слишком много проверок. Повторите через минуту.')
+    return await check_analysis(payload.token)

@@ -50,3 +50,10 @@
 
 /* v0.8: unperformed antivirus checks must never get a green checkmark */
 .file-check-mark.not-complete{background:#6d675f!important;color:#ffe2b4!important}
+
+/* v0.9 public sample submission: use explicit, informed consent */
+.vt-upload-controls{background:rgba(97,52,36,.32);border:1px solid rgba(248,180,127,.60);border-radius:16px;padding:14px 16px;margin-top:20px}
+.vt-upload-controls .file-option{margin-top:0}
+.vt-privacy-warning{font-size:13px;line-height:1.65;color:#ffe6d3;margin:9px 0 0}
+.vt-scan-progress{margin-top:25px;padding:20px;border:1px solid rgba(255,255,255,.25);border-radius:17px;background:rgba(35,68,42,.3)}
+.vt-scan-progress h4{font-size:18px;margin:0 0 8px}.vt-scan-progress p{font-size:14px;line-height:1.6;margin:0 0 13px}

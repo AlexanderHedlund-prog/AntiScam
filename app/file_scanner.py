@@ -1,7 +1,8 @@
-"""Conservative, offline file metadata inspection + optional VirusTotal HASH lookup.
+"""Conservative file inspection and VirusTotal hash lookup.
 
-Never runs, extracts, opens or uploads the input to outside services.
-No local malware engine is bundled: results are NOT antivirus certification.
+With separate user permission AND an explicit owner setting, a previously
+unknown file can also be uploaded to VirusTotal (public submission).
+No uploaded bytes are executed. No result certifies that a file is safe.
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ from app.reputation_quota import take_virustotal_slot
 from app.quick_verdict import build_quick_verdict
 from app.local_malware import inspect_malware_indicators
 from app.clamav_engine import scan_clamav
+from app.vt_file_submission import submit_unknown_file
 
 MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_MULTIPART_BYTES = MAX_FILE_BYTES + 1024 * 1024
@@ -274,7 +276,7 @@ async def virustotal_hash_lookup(digest: str, consent: bool) -> dict[str, Any]:
         return {'name': provider, 'status': 'error', 'message': 'Не удалось получить результаты из базы.'}
 
 
-async def analyse_file(data: bytes, uploaded_name: str, consent: bool) -> dict[str, Any]:
+async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit_to_vt: bool = False) -> dict[str, Any]:
     """Run built-in static indicator checks; optionally query VT and local clamd.
 
     A clean static scan is never proof of safety. ClamAV requires a separately
@@ -288,6 +290,8 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool) -> dict[s
         virustotal_hash_lookup(report['sha256'], consent),
         scan_clamav(data),
     )
+    if submit_to_vt and consent and reputation.get('status') == 'no_data' and 'В базе нет отчёта' in reputation.get('message', ''):
+        reputation = await submit_unknown_file(data, report['sha256'], report['filename'])
     signals = list(report['signals'])
     for finding in own['findings']:
         severity = 'medium' if finding['severity'] == 'test' else finding['severity']
@@ -317,5 +321,6 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool) -> dict[s
     return {**report, 'signals': signals, 'own_malware_scan': own,
             'risk': risk, 'title': title, 'detail': detail,
             'quick_verdict': quick_verdict,
+            'vt_analysis_token': reputation.get('analysis_token'),
             'providers': [reputation, own, clamav],
-            'disclaimer': 'Собственный статический анализ выполняется без исполнения файлов. ClamAV проверяет байты только при подключённом локальном антивирусном движке; без него полноценная проверка не выполняется. VirusTotal получает только SHA-256 с согласия. Ни одна система не гарантирует отсутствие неизвестных вирусов.'}
+            'disclaimer': 'Собственный статический анализ не запускает файл. ClamAV работает только при отдельном подключении. Обычный запрос VirusTotal передаёт лишь SHA-256. При отдельном согласии на новое сканирование содержимое файла передаётся VirusTotal и может стать доступным его сообществу. Ни одна система не гарантирует отсутствия вирусов.'}
