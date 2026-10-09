@@ -126,6 +126,22 @@ function drawOwnAnalysis(info) {
   }
 }
 
+function drawPageInspection(info) {
+  const section = $('page-inspection');
+  section.classList.toggle('hidden', !info || info.status === 'skipped');
+  if (!info || info.status === 'skipped') return;
+  const statuses = {ok:'Частично просмотрено', incomplete:'Не удалось', blocked:'Заблокировано'};
+  setText('page-state', statuses[info.status] || 'Неизвестно');
+  $('page-state').className = 'own-level ' + (info.status === 'ok' ? 'own-low' : 'own-medium');
+  setText('page-message', info.message);
+  setText('page-domain', info.final_host || 'Не удалось установить');
+  setText('page-redirects', 'HTTP-переадресаций: ' + (info.redirects || 0));
+  setText('page-kind', info.kind || 'Неизвестно');
+  setText('page-size', 'Прочитано: ' + (info.bytes_read || 0) + ' байт' + (info.truncated ? ' (фрагмент, страница больше)' : ''));
+  setText('page-title', info.title || 'Не определён');
+  setText('page-findings', 'HTML-форм: ' + (info.forms || 0) + ' · Скриптов (не запускались): ' + (info.scripts || 0) + ' · Ссылок на исполняемые файлы: ' + (info.suspicious_links || 0));
+}
+
 function displayError(id, message) {
   $(id).textContent = message;
   $(id).classList.remove('hidden');
@@ -150,10 +166,11 @@ $('check-form').addEventListener('submit', async (event) => {
   try {
     const data = await requestJSON('/api/scan', {
       method:'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({url, share_with_services: $('share-opt').checked, inspect_headers: $('headers-opt').checked})
-    }, 22000);
+      body: JSON.stringify({url, share_with_services: $('share-opt').checked, inspect_headers: $('headers-opt').checked, inspect_page: $('inspect-page-opt').checked})
+    }, 30000);
     setText('result-url', data.display_url);
     drawOwnAnalysis(data.local_analysis);
+    drawPageInspection(data.page_inspection);
     setText('content-label', data.content.label);
     setText('content-basis', data.content.basis);
     const headerNames = {ok:'Получены', skipped:'Не запрашивались', unknown:'Не удалось получить'};

@@ -399,24 +399,39 @@ async def virustotal_check(url: str, api_key: str | None) -> dict[str, Any]:
         return {'name': provider, 'status': 'error', 'message': 'Сервис временно недоступен.', 'detections': 0}
 
 
-async def analyse_url(raw: str, consent: bool, inspect_headers: bool) -> dict[str, Any]:
+async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_page_content: bool = False) -> dict[str, Any]:
     link = validate_url(raw)
     gkey = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY", "").strip()
     vkey = os.getenv("VIRUSTOTAL_API_KEY", "").strip()
     local_analysis = analyse_locally(link)
-    signals = local_analysis["signals"]
+    signals = list(local_analysis["signals"])
     calls: list[Any] = []
     if consent:
         calls.extend([google_check(link.original, gkey), virustotal_check(link.original, vkey)])
     if inspect_headers:
         calls.append(probe_content(link))
+    if inspect_page_content:
+        from app.page_inspector import inspect_page
+        calls.append(inspect_page(link))
     results = await asyncio.gather(*calls) if calls else []
     providers = results[:2] if consent else [
         _inactive("Google Safe Browsing", "Не разрешена передача URL внешним сервисам."),
         _inactive("VirusTotal", "Не разрешена передача URL внешним сервисам."),
     ]
-    probe = results[-1] if inspect_headers else {"status": "skipped", "message": "Запрос заголовков не выполнялся."}
-    content = guess_content(link, probe.get("mime") if probe.get("status") == "ok" else None)
+    probe_index = 2 if consent else 0
+    probe = results[probe_index] if inspect_headers else {"status": "skipped", "message": "Запрос заголовков не выполнялся."}
+    page_index = probe_index + (1 if inspect_headers else 0)
+    page = results[page_index] if inspect_page_content else {
+        "status": "skipped", "message": "Содержимое страницы не запрашивалось.",
+        "signals": [], "title": None, "final_host": None, "kind": None,
+    }
+    if page.get('status') == 'ok':
+        signals.extend(page.get('signals', []))
+    elif page.get('status') == 'blocked':
+        signals.append({'severity': 'medium', 'text': 'Переадресация на запрещённый адрес: проверка остановлена.', 'source': 'page'})
+    content = guess_content(link, page.get('mime') if page.get('status') == 'ok' else (probe.get("mime") if probe.get("status") == "ok" else None))
+    if page.get('status') == 'ok' and page.get('kind'):
+        content = {'label': page['kind'], 'basis': 'Прочитан ограниченный фрагмент ответа; файл целиком не проверялся.', 'confidence': 'medium'}
 
     google_hit = any(p["name"] == "Google Safe Browsing" and p["status"] == "checked" and p.get("detections", 0) > 0 for p in providers)
     vt_mal = next((p.get("detections", 0) for p in providers if p["name"] == "VirusTotal" and p["status"] == "checked"), 0)
@@ -432,7 +447,7 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool) -> dict[st
         risk = "caution"
         title = "Требуется осторожность"
         detail = "Есть признаки риска. Они не доказывают наличие вируса, но ссылку лучше не открывать без дополнительной проверки."
-    elif checked_any and any(p["status"] != "checked" for p in providers):
+    elif checked_any and (any(p["status"] != "checked" for p in providers) or (inspect_page_content and page.get("status") != "ok")):
         # A clean report from one database cannot make an incomplete check green.
         risk = "unknown"
         title = "Проверка выполнена частично"
@@ -456,5 +471,6 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool) -> dict[st
         "local_analysis": local_analysis,
         "providers": providers,
         "header_probe": {"status": probe["status"], "message": probe["message"]},
-        "disclaimer": "Локальная эвристика не является доказательством вируса или безопасности; содержимое сайта не открывалось. Репутационные базы могут ошибаться в обе стороны. Без отдельной песочницы обнаружить новые вредоносные программы по одной ссылке невозможно.",
+        "page_inspection": page,
+        "disclaimer": "Анализ адреса и ограниченного фрагмента HTML не доказывает отсутствие вируса и не является антивирусом. JavaScript и загрузки не выполняются. Для обнаружения вредоносных программ нужен отдельный изолированный анализ. Репутационные базы тоже могут ошибаться.",
     }

@@ -50,16 +50,26 @@
                 <p class="option-note">При согласии адрес передаётся Google Safe Browsing и VirusTotal. Сторонние сервисы могут сохранять сведения о запросе. Не проверяй приватные ссылки, содержащие токены или личные данные.</p>
                 <label class="option"><input type="checkbox" id="headers-opt"><span>Уточнить тип содержимого через HTTP-заголовки</span></label>
                 <p class="option-note">Наш сервер сделает защищённый HEAD-запрос по адресу. Сайт назначения увидит обращение сервера; файл скачиваться не будет.</p>
+                <label class="option"><input type="checkbox" id="inspect-page-opt"><span>Посмотреть содержимое страницы (бета)</span></label>
+                <p class="option-note">По твоему выбору AntiScam обратится к сайту и прочитает только первые 128 КБ ответа. Сайт увидит посещение нашего сервера. JavaScript не запускается, вложенные файлы не скачиваются. Не используй приватные ссылки с токенами или персональными данными.</p>
               </div>
               <button id="submit-btn" type="submit" class="action-btn"><span id="submit-text">Проверить ссылку</span><span aria-hidden="true">→</span></button>
-              <p class="microcopy">Встроенный анализ работает без открытия страницы. Сторонние проверки и HTTP-заголовки — только по твоему выбору.</p>
+              <p class="microcopy">Анализ URL выполняется без сети. Внешние базы, HEAD и просмотр содержимого включаются отдельно по твоему желанию.</p>
             </form>
             <div id="error-box" class="message error hidden" role="alert"></div>
             <section id="result" class="result-card hidden" aria-label="Результат проверки ссылки" aria-live="polite">
               <div id="risk-banner" class="risk-banner unknown"><span class="risk-symbol" id="risk-symbol">?</span><div><span class="result-kicker">РЕЗУЛЬТАТ ПРОВЕРКИ</span><h3 id="risk-title"></h3><p id="risk-text"></p></div></div>
               <div class="result-body"><p class="result-label">ПРОВЕРЯЕМЫЙ АДРЕС</p><p id="result-url" class="value-break"></p>
                 <div class="result-two"><div class="result-tile"><p class="result-label">ПРЕДПОЛАГАЕМОЕ СОДЕРЖИМОЕ</p><h4 id="content-label"></h4><p id="content-basis"></p></div><div class="result-tile"><p class="result-label">HTTP-ЗАГОЛОВКИ</p><h4 id="header-status"></h4><p id="header-message"></p></div></div>
-                <section id="own-analysis" class="own-analysis" aria-label="Собственный анализ ссылки"><div class="own-analysis-top"><h4>Собственный анализ AntiScam <span class="own-tag">v0.5</span></h4><span id="own-risk-label" class="own-level">Анализ</span></div><p class="own-summary" id="own-summary"></p><p class="own-caption">Что мы проверили по адресу (без загрузки сайта):</p><ul id="own-checks" class="own-checks"></ul><p id="own-limits" class="own-limits"></p></section><h4 class="list-heading">Внешние базы</h4><div id="provider-list" class="rows"></div><h4 class="list-heading">Признаки риска</h4><div id="signal-list" class="rows"></div>
+                <section id="page-inspection" class="own-analysis hidden" aria-label="Проверка содержимого страницы">
+                  <div class="own-analysis-top"><h4>Куда ведёт ссылка <span class="own-tag">v0.6</span></h4><span id="page-state" class="own-level">Ожидание</span></div>
+                  <p id="page-message" class="own-summary"></p>
+                  <div class="result-two"><div class="result-tile"><p class="result-label">КОНЕЧНЫЙ ДОМЕН</p><h4 id="page-domain" class="value-break">—</h4><p id="page-redirects"></p></div><div class="result-tile"><p class="result-label">РЕАЛЬНОЕ СОДЕРЖИМОЕ</p><h4 id="page-kind">—</h4><p id="page-size"></p></div></div>
+                  <p class="own-caption">Заголовок: <strong id="page-title"></strong></p>
+                  <p id="page-findings" class="own-caption"></p>
+                  <p class="own-limits">Это статическая проверка части страницы: мы не запускаем JavaScript, не загружаем вложенные файлы и не можем доказать отсутствие вирусов.</p>
+                </section>
+                <section id="own-analysis" class="own-analysis" aria-label="Собственный анализ ссылки"><div class="own-analysis-top"><h4>Собственный анализ AntiScam <span class="own-tag">v0.6</span></h4><span id="own-risk-label" class="own-level">Анализ</span></div><p class="own-summary" id="own-summary"></p><p class="own-caption">Что мы проверили по самому адресу:</p><ul id="own-checks" class="own-checks"></ul><p id="own-limits" class="own-limits"></p></section><h4 class="list-heading">Внешние базы</h4><div id="provider-list" class="rows"></div><h4 class="list-heading">Признаки риска</h4><div id="signal-list" class="rows"></div>
                 <p id="disclaimer" class="disclaimer"></p>
               </div>
             </section>
@@ -97,7 +107,7 @@
     </div>
 
     <section id="about-page" class="about-page wrap hidden" aria-labelledby="about-heading">
-      <div class="about-hero"><p class="section-label">О НАШЕМ ПРОЕКТЕ</p><h1 id="about-heading">Безопасность должна<br>быть <em>понятной.</em></h1><p>AntiScam помогает разобраться в подозрительных ссылках и файлах, не обещая невозможного. У нас есть собственный анализ признаков в адресе (фишинговая маскировка, опасные расширения, перенаправления), а также сверка с базами угроз. Мы показываем, что удалось проверить, а где данных недостаточно. Базы Google Safe Browsing и VirusTotal могут пропускать новые угрозы и ошибочно отмечать безопасные ссылки.</p></div>
+      <div class="about-hero"><p class="section-label">О НАШЕМ ПРОЕКТЕ</p><h1 id="about-heading">Безопасность должна<br>быть <em>понятной.</em></h1><p>AntiScam помогает разобраться в подозрительных ссылках и файлах, не обещая невозможного. У нас есть анализ адреса и по согласию пользователя — ограниченный просмотр HTML-содержимого с защитой от внутренних адресов, а также сверка с базами угроз. Мы показываем, что удалось проверить, а где данных недостаточно. Базы Google Safe Browsing и VirusTotal могут пропускать новые угрозы и ошибочно отмечать безопасные ссылки.</p></div>
       <div class="about-cards"><article class="process-card"><span class="step-count">Наш подход</span><h2>Открыто о рисках</h2><p>Формат файла и отсутствие совпадений в базах не доказывают, что вирусов нет.</p></article><article class="process-card"><span class="step-count">Конфиденциальность</span><h2>Минимум данных</h2><p>Файлы не сохраняются в проекте. Внешняя проверка ссылки — только после разрешения.</p></article><article class="process-card"><span class="step-count">Для каждого</span><h2>Простыми словами</h2><p>Не нужно знать, что такое домен, исполняемый файл или SHA-256, чтобы понять основные признаки опасности.</p></article></div>
       <div class="notice-panel"><h2>Несколько важных правил</h2><p>Не вводи пароли и коды из SMS по ссылкам от неизвестных людей. Не запускай подозрительные вложения. Для важных файлов дополнительно используй обновлённый антивирус на своём устройстве.</p><a href="/" class="text-action" data-route="link">Перейти к проверке ссылки →</a></div>
     </section>
