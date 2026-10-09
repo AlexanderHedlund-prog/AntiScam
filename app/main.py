@@ -15,10 +15,11 @@ from pydantic import BaseModel, Field
 
 from app.scanner import URLValidationError, analyse_url
 from app.file_scanner import MAX_FILE_BYTES, MAX_MULTIPART_BYTES, analyse_file
+from app.clamav_engine import configured as clamav_configured
 
 load_dotenv()
 BASE = Path(__file__).resolve().parent
-app = FastAPI(title='AntiScam API', version='0.7.0', docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title='AntiScam API', version='0.8.0', docs_url=None, redoc_url=None, openapi_url=None)
 app.mount('/assets', StaticFiles(directory=BASE / 'static'), name='assets')
 _LIMIT = int(os.getenv('RATE_LIMIT_PER_MINUTE', '12'))
 _TRAFFIC: dict[str, deque[float]] = defaultdict(deque)
@@ -83,7 +84,7 @@ async def index():
 
 @app.get('/health')
 async def health():
-    return {'status': 'ok', 'service': 'AntiScam', 'version': '0.7.0'}
+    return {'status': 'ok', 'service': 'AntiScam', 'version': '0.8.0'}
 
 
 @app.get('/api/providers')
@@ -92,6 +93,7 @@ async def providers_status():
     return {
         'google_safe_browsing': {'configured': bool(os.getenv('GOOGLE_SAFE_BROWSING_API_KEY', '').strip()), 'version': 'v5'},
         'virustotal': {'configured': bool(os.getenv('VIRUSTOTAL_API_KEY', '').strip())},
+        'clamav': {'configured': clamav_configured(), 'note': 'Требует отдельного локально доступного clamd; наличие сокета не подтверждает его работоспособность.'},
         'note': 'configured означает только наличие ключа; действительность ключа подтверждается при проверке ссылки.',
     }
 

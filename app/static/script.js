@@ -222,7 +222,10 @@ function drawFileDetails(data) {
   const checks = $('file-checks'); checks.replaceChildren();
   for (const check of data.checks || []) {
     const item = document.createElement('div'); item.className = 'file-check-item';
-    const dot = document.createElement('span'); dot.textContent = '✓'; dot.className = 'file-check-mark';
+    const dot = document.createElement('span');
+    const status = check.status || 'checked';
+    dot.textContent = status === 'checked' ? '✓' : status === 'error' ? '!' : '?';
+    dot.className = 'file-check-mark ' + (status === 'checked' ? '' : 'not-complete');
     const body = document.createElement('div');
     const name = document.createElement('strong'); name.textContent = check.label;
     const detail = document.createElement('p'); detail.textContent = check.result;

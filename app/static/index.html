@@ -87,7 +87,7 @@
               <label class="option file-option"><input type="checkbox" id="file-share-opt"><span>Искать известные угрозы по SHA-256 в VirusTotal</span></label>
               <p class="option-note">В VirusTotal отправляется только цифровой отпечаток (SHA-256), не сам файл. Не загружай конфиденциальные файлы: при поиске их хеш может стать известен внешнему сервису. Требуется подключённый API-ключ. Совпадение хеша с известным образцом позволяет получить имеющийся отчёт.</p>
               <button id="file-submit-btn" type="submit" class="action-btn"><span id="file-submit-text">Проверить файл</span><span aria-hidden="true">→</span></button>
-              <p class="microcopy">AntiScam не запускает файл, не хранит его постоянно и не пересылает байты сторонним сервисам. При загрузке сервер может временно буферизовать данные. Это проверка известных признаков, а не полный антивирус.</p>
+              <p class="microcopy">AntiScam не запускает файл, не хранит его постоянно и не пересылает байты сторонним сервисам. При загрузке сервер может временно буферизовать данные. Наш статический анализ работает всегда; ClamAV включается только при отдельно настроенном антивирусном сервере. Отсутствие находок не подтверждает безопасность.</p>
             </form>
             <div id="file-error" class="message error hidden" role="alert"></div>
             <section id="file-result" class="result-card hidden" aria-live="polite" aria-label="Результат проверки файла">
@@ -101,7 +101,7 @@
                 <p class="result-label hash-heading">SHA-256</p><p id="file-sha" class="hash"></p>
                 <h4 class="list-heading">Что проверил AntiScam</h4><div id="file-checks" class="rows"></div>
                 <section id="archive-info" class="archive-info hidden" aria-label="Содержимое архива"><div class="archive-heading"><h4 class="list-heading">Что внутри файла</h4><span id="archive-count" class="count-pill"></span></div><p id="archive-note" class="archive-note"></p><div id="archive-items" class="archive-items"></div></section>
-                <h4 class="list-heading">Проверка репутации</h4><div id="file-providers" class="rows"></div>
+                <h4 class="list-heading">Собственная проверка и антивирусные системы</h4><div id="file-providers" class="rows"></div>
                 <h4 class="list-heading">Замеченные признаки</h4><div id="file-signals" class="rows"></div>
                 <p id="file-disclaimer" class="disclaimer"></p>
               </div>
