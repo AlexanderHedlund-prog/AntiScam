@@ -110,6 +110,22 @@ function drawReport(data, ids) {
   $(ids.result).scrollIntoView({behavior: reduceMotion() ? 'auto' : 'smooth', block:'start'});
 }
 
+function drawOwnAnalysis(info) {
+  if (!info) { $('own-analysis').classList.add('hidden'); return; }
+  $('own-analysis').classList.remove('hidden');
+  const levels = {none: 'Явных признаков нет', low: 'Слабые признаки', medium: 'Нужна осторожность', high: 'Заметные признаки'};
+  const level = ['none', 'low', 'medium', 'high'].includes(info.level) ? info.level : 'none';
+  setText('own-risk-label', levels[level]);
+  $('own-risk-label').className = 'own-level own-' + level;
+  setText('own-summary', info.summary);
+  setText('own-limits', info.limitations);
+  $('own-checks').replaceChildren();
+  for (const text of info.checks || []) {
+    const item = document.createElement('li'); item.textContent = text;
+    $('own-checks').append(item);
+  }
+}
+
 function displayError(id, message) {
   $(id).textContent = message;
   $(id).classList.remove('hidden');
@@ -137,6 +153,7 @@ $('check-form').addEventListener('submit', async (event) => {
       body: JSON.stringify({url, share_with_services: $('share-opt').checked, inspect_headers: $('headers-opt').checked})
     }, 22000);
     setText('result-url', data.display_url);
+    drawOwnAnalysis(data.local_analysis);
     setText('content-label', data.content.label);
     setText('content-basis', data.content.basis);
     const headerNames = {ok:'Получены', skipped:'Не запрашивались', unknown:'Не удалось получить'};
@@ -172,6 +189,30 @@ const dz = $('dropzone');
   event.preventDefault(); dz.classList.remove('drag-over');
 }));
 dz.addEventListener('drop', (event) => chooseFile(event.dataTransfer?.files?.[0]));
+function drawFileDetails(data) {
+  const checks = $('file-checks'); checks.replaceChildren();
+  for (const check of data.checks || []) {
+    const item = document.createElement('div'); item.className = 'file-check-item';
+    const dot = document.createElement('span'); dot.textContent = '✓'; dot.className = 'file-check-mark';
+    const body = document.createElement('div');
+    const name = document.createElement('strong'); name.textContent = check.label;
+    const detail = document.createElement('p'); detail.textContent = check.result;
+    body.append(name, detail); item.append(dot, body); checks.append(item);
+  }
+  const archive = $('archive-info'); archive.classList.toggle('hidden', !data.archive);
+  $('archive-items').replaceChildren();
+  if (data.archive) {
+    setText('archive-count', data.archive.count + ' элементов');
+    setText('archive-note', data.archive.note);
+    for (const member of data.archive.preview || []) {
+      const row = document.createElement('div'); row.className = 'archive-item';
+      const name = document.createElement('span'); name.className = 'archive-item-name'; name.textContent = member.name;
+      const ext = document.createElement('span'); ext.className = 'archive-item-kind'; ext.textContent = member.kind;
+      row.append(name, ext); $('archive-items').append(row);
+    }
+  }
+}
+
 $('file-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   $('file-error').classList.add('hidden'); $('file-result').classList.add('hidden');
@@ -188,6 +229,7 @@ $('file-form').addEventListener('submit', async (event) => {
     setText('file-content', data.content.label);
     setText('file-basis', data.content.basis);
     setText('file-sha', data.sha256);
+    drawFileDetails(data);
     drawReport(data, {banner:'file-risk-banner', symbol:'file-risk-symbol', title:'file-risk-title', detail:'file-risk-text', providers:'file-providers', signals:'file-signals', disclaimer:'file-disclaimer', result:'file-result'});
   } catch (error) {
     displayError('file-error', error.name === 'AbortError' ? 'Превышено время ожидания. Попробуйте ещё раз.' : 'Не удалось проверить: ' + error.message);

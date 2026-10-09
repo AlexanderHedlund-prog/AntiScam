@@ -11,13 +11,13 @@ import hashlib
 import time
 import ipaddress
 import os
-import re
 import socket
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
 from app.reputation_quota import take_virustotal_slot
+from app.local_url_analysis import analyse_locally
 from app.safe_browsing_wire import decode_search_urls
 from urllib.parse import unquote, urljoin, urlsplit
 
@@ -34,7 +34,6 @@ SPREADSHEET_EXT = {".xls", ".xlsx", ".ods", ".csv"}
 ARCHIVE_EXT = {".zip", ".7z", ".rar", ".tar", ".gz"}
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
 MEDIA_EXT = {".mp3", ".mp4", ".avi", ".mov", ".webm", ".wav"}
-SHORT_DOMAINS = {"bit.ly", "tinyurl.com", "t.co", "cutt.ly", "is.gd", "clck.ru", "goo.su", "shorturl.at"}
 CONTENT_MIMES = {
     "application/pdf": "PDF-документ",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "Презентация PowerPoint (.pptx)",
@@ -152,29 +151,8 @@ def guess_content(link: ValidURL, mime: str | None = None) -> dict[str, str]:
 
 
 def heuristic_signals(link: ValidURL) -> list[dict[str, str]]:
-    signals: list[dict[str, str]] = []
-    host = link.host
-    lower_path = unquote(link.path).lower()
-    if link.scheme == "http":
-        signals.append({"severity": "medium", "text": "Соединение HTTP не шифруется."})
-    try:
-        ipaddress.ip_address(host)
-        signals.append({"severity": "medium", "text": "Вместо доменного имени используется IP-адрес."})
-    except ValueError:
-        pass
-    if host.startswith("xn--") or ".xn--" in host:
-        signals.append({"severity": "medium", "text": "В домене есть Punycode — проверьте написание адреса."})
-    if host in SHORT_DOMAINS or any(host.endswith("." + d) for d in SHORT_DOMAINS):
-        signals.append({"severity": "medium", "text": "Сокращённая ссылка скрывает конечный адрес."})
-    if link.ext in SUSPICIOUS_EXT:
-        signals.append({"severity": "high", "text": "Адрес похож на исполняемый файл или скрипт; не запускайте его без проверки."})
-    if link.ext in MACRO_EXT:
-        signals.append({"severity": "medium", "text": "Файл может содержать активные макросы."})
-    if re.search(r"\.(?:pdf|docx?|pptx?|xlsx?|jpg|png)\.(?:exe|scr|bat|cmd|js|vbs)$", lower_path):
-        signals.append({"severity": "high", "text": "Двойное расширение может маскировать программу под документ."})
-    if host.count(".") >= 4:
-        signals.append({"severity": "low", "text": "Очень длинный поддомен: убедитесь, что домен настоящий."})
-    return signals
+    """Backwards-compatible access to the v0.5 offline indicators."""
+    return analyse_locally(link)['signals']
 
 
 class GuardedResolver(AbstractResolver):
@@ -425,7 +403,8 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool) -> dict[st
     link = validate_url(raw)
     gkey = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY", "").strip()
     vkey = os.getenv("VIRUSTOTAL_API_KEY", "").strip()
-    signals = heuristic_signals(link)
+    local_analysis = analyse_locally(link)
+    signals = local_analysis["signals"]
     calls: list[Any] = []
     if consent:
         calls.extend([google_check(link.original, gkey), virustotal_check(link.original, vkey)])
@@ -474,7 +453,8 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool) -> dict[st
         "detail": detail,
         "content": content,
         "signals": signals,
+        "local_analysis": local_analysis,
         "providers": providers,
         "header_probe": {"status": probe["status"], "message": probe["message"]},
-        "disclaimer": "Проверяется репутация URL и заявленный формат, а не наличие вируса внутри скачиваемого файла. Базы угроз могут ошибаться в обе стороны.",
+        "disclaimer": "Локальная эвристика не является доказательством вируса или безопасности; содержимое сайта не открывалось. Репутационные базы могут ошибаться в обе стороны. Без отдельной песочницы обнаружить новые вредоносные программы по одной ссылке невозможно.",
     }
