@@ -18,6 +18,7 @@ from typing import Any
 
 from app.reputation_quota import take_virustotal_slot
 from app.local_url_analysis import analyse_locally
+from app.quick_verdict import build_quick_verdict
 from app.safe_browsing_wire import decode_search_urls
 from urllib.parse import unquote, urljoin, urlsplit
 
@@ -464,6 +465,7 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
         "domain": link.host,
         "display_url": link.safe_display,
         "risk": risk,
+        "quick_verdict": build_quick_verdict(risk, kind='url'),
         "title": title,
         "detail": detail,
         "content": content,

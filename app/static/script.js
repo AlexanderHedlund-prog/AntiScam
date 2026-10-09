@@ -110,6 +110,17 @@ function drawReport(data, ids) {
   $(ids.result).scrollIntoView({behavior: reduceMotion() ? 'auto' : 'smooth', block:'start'});
 }
 
+function drawQuickVerdict(data, kind) {
+  const prefix = kind === 'file' ? 'file' : 'url';
+  const verdict = data.quick_verdict;
+  const allowed = ['low', 'caution', 'danger', 'unknown'];
+  const state = verdict && allowed.includes(verdict.state) ? verdict.state : 'unknown';
+  const container = $(prefix + '-quick-verdict');
+  container.className = 'quick-verdict ' + state;
+  setText(prefix + '-quick-answer', verdict?.answer || 'Пока невозможно определить');
+  setText(prefix + '-quick-note', verdict?.note || 'Недостаточно данных для ответа.');
+}
+
 function drawOwnAnalysis(info) {
   if (!info) { $('own-analysis').classList.add('hidden'); return; }
   $('own-analysis').classList.remove('hidden');
@@ -176,6 +187,7 @@ $('check-form').addEventListener('submit', async (event) => {
     const headerNames = {ok:'Получены', skipped:'Не запрашивались', unknown:'Не удалось получить'};
     setText('header-status', headerNames[data.header_probe.status] || 'Неизвестно');
     setText('header-message', data.header_probe.message);
+    drawQuickVerdict(data, 'url');
     drawReport(data, {banner:'risk-banner', symbol:'risk-symbol', title:'risk-title', detail:'risk-text', providers:'provider-list', signals:'signal-list', disclaimer:'disclaimer', result:'result'});
   } catch (error) {
     displayError('error-box', error.name === 'AbortError' ? 'Превышено время ожидания. Попробуйте ещё раз.' : 'Не удалось проверить: ' + error.message);
@@ -247,6 +259,7 @@ $('file-form').addEventListener('submit', async (event) => {
     setText('file-basis', data.content.basis);
     setText('file-sha', data.sha256);
     drawFileDetails(data);
+    drawQuickVerdict(data, 'file');
     drawReport(data, {banner:'file-risk-banner', symbol:'file-risk-symbol', title:'file-risk-title', detail:'file-risk-text', providers:'file-providers', signals:'file-signals', disclaimer:'file-disclaimer', result:'file-result'});
   } catch (error) {
     displayError('file-error', error.name === 'AbortError' ? 'Превышено время ожидания. Попробуйте ещё раз.' : 'Не удалось проверить: ' + error.message);

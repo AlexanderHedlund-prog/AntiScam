@@ -58,7 +58,11 @@
             </form>
             <div id="error-box" class="message error hidden" role="alert"></div>
             <section id="result" class="result-card hidden" aria-label="Результат проверки ссылки" aria-live="polite">
-              <div id="risk-banner" class="risk-banner unknown"><span class="risk-symbol" id="risk-symbol">?</span><div><span class="result-kicker">РЕЗУЛЬТАТ ПРОВЕРКИ</span><h3 id="risk-title"></h3><p id="risk-text"></p></div></div>
+              <div id="url-quick-verdict" class="quick-verdict unknown" aria-label="Краткий ответ о вирусах">
+                <p class="quick-verdict-kicker">КОРОТКИЙ ОТВЕТ · ЕСТЬ ЛИ ВИРУС?</p>
+                <h3 id="url-quick-answer"></h3><p id="url-quick-note"></p>
+              </div>
+              <div id="risk-banner" class="risk-banner unknown"><span class="risk-symbol" id="risk-symbol">?</span><div><span class="result-kicker">ПОДРОБНЫЙ РЕЗУЛЬТАТ</span><h3 id="risk-title"></h3><p id="risk-text"></p></div></div>
               <div class="result-body"><p class="result-label">ПРОВЕРЯЕМЫЙ АДРЕС</p><p id="result-url" class="value-break"></p>
                 <div class="result-two"><div class="result-tile"><p class="result-label">ПРЕДПОЛАГАЕМОЕ СОДЕРЖИМОЕ</p><h4 id="content-label"></h4><p id="content-basis"></p></div><div class="result-tile"><p class="result-label">HTTP-ЗАГОЛОВКИ</p><h4 id="header-status"></h4><p id="header-message"></p></div></div>
                 <section id="page-inspection" class="own-analysis hidden" aria-label="Проверка содержимого страницы">
@@ -87,7 +91,11 @@
             </form>
             <div id="file-error" class="message error hidden" role="alert"></div>
             <section id="file-result" class="result-card hidden" aria-live="polite" aria-label="Результат проверки файла">
-              <div id="file-risk-banner" class="risk-banner unknown"><span class="risk-symbol" id="file-risk-symbol">?</span><div><span class="result-kicker">РЕЗУЛЬТАТ ПРОВЕРКИ</span><h3 id="file-risk-title"></h3><p id="file-risk-text"></p></div></div>
+              <div id="file-quick-verdict" class="quick-verdict unknown" aria-label="Краткий ответ о вирусах в файле">
+                <p class="quick-verdict-kicker">КОРОТКИЙ ОТВЕТ · ЕСТЬ ЛИ ВИРУС?</p>
+                <h3 id="file-quick-answer"></h3><p id="file-quick-note"></p>
+              </div>
+              <div id="file-risk-banner" class="risk-banner unknown"><span class="risk-symbol" id="file-risk-symbol">?</span><div><span class="result-kicker">ПОДРОБНЫЙ РЕЗУЛЬТАТ</span><h3 id="file-risk-title"></h3><p id="file-risk-text"></p></div></div>
               <div class="result-body"><p class="result-label">ИМЯ ФАЙЛА</p><p id="file-name" class="value-break"></p>
                 <div class="result-two"><div class="result-tile"><p class="result-label">ТИП СОДЕРЖИМОГО</p><h4 id="file-content"></h4><p id="file-basis"></p></div><div class="result-tile"><p class="result-label">РАЗМЕР</p><h4 id="file-size"></h4><p>Файл прочитан без выполнения его содержимого.</p></div></div>
                 <p class="result-label hash-heading">SHA-256</p><p id="file-sha" class="hash"></p>

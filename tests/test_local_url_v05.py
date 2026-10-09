@@ -61,7 +61,7 @@ def test_private_url_token_is_not_echoed_in_display():
 
 def test_ui_and_api_v05():
     with TestClient(app) as client:
-        assert client.get('/health').json()['version'] == '0.5.0'
+        assert client.get('/health').json()['version'] == '0.7.0'
         html = client.get('/').text
         assert 'id="own-analysis"' in html
         assert 'id="own-checks"' in html
