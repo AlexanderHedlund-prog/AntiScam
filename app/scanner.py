@@ -441,9 +441,35 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
         signals.extend(page.get('signals', []))
     elif page.get('status') == 'blocked':
         signals.append({'severity': 'medium', 'text': 'Переадресация на запрещённый адрес: проверка остановлена.', 'source': 'page'})
+    # The local URL heuristic did not fetch content, but other separately
+    # opted-in stages may have done so. Its generic caveat must not contradict
+    # those stages in the combined report.
+    if download.get('status') == 'ok' or page.get('status') == 'ok':
+        local_analysis = dict(local_analysis)
+        if local_analysis['level'] == 'none':
+            local_analysis['summary'] = (
+                'По самому URL явных признаков не найдено. Отдельно выполнен статический анализ скачанного файла.'
+                if download.get('status') == 'ok' else
+                'По самому URL явных признаков не найдено. Отдельно просмотрен ограниченный фрагмент HTML.'
+            )
+        local_analysis['limitations'] = (
+            'Здесь оценивались только признаки URL. Результат проверки полученного файла показан отдельно выше; '
+            'никто не запускал его содержимое, полной антивирусной проверки нет.'
+            if download.get('status') == 'ok' else
+            'Здесь оценивались только признаки URL. Результат ограниченного просмотра страницы показан отдельно выше; '
+            'JavaScript не выполнялся, отсутствие вирусов не гарантируется.'
+        )
     content = guess_content(link, page.get('mime') if page.get('status') == 'ok' else (probe.get("mime") if probe.get("status") == "ok" else None))
     if page.get('status') == 'ok' and page.get('kind'):
-        content = {'label': page['kind'], 'basis': 'Прочитан ограниченный фрагмент ответа; файл целиком не проверялся.', 'confidence': 'medium'}
+        content = {'label': page['kind'], 'basis': 'Прочитан ограниченный фрагмент HTML; динамические скрипты не запускались.', 'confidence': 'medium'}
+    # When the opt-in downloader actually fetched bytes, never display the older
+    # extension-only guess ("file was not downloaded") as the verified result.
+    if download.get('status') == 'ok':
+        content = {
+            'label': download.get('kind') or 'Файл (тип не установлен)',
+            'basis': 'Файл получен с согласия пользователя и проверен по содержимому: ограниченный статический анализ без запуска и без отправки в VirusTotal.',
+            'confidence': 'high',
+        }
 
     google_hit = any(p["name"] == "Google Safe Browsing" and p["status"] == "checked" and p.get("detections", 0) > 0 for p in providers)
     vt_mal = next((p.get("detections", 0) for p in providers if p["name"] == "VirusTotal" and p["status"] == "checked"), 0)
@@ -486,5 +512,15 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
         "header_probe": {"status": probe["status"], "message": probe["message"]},
         "page_inspection": page,
         "download_inspection": download,
-        "disclaimer": "Анализ адреса и ограниченного фрагмента HTML не доказывает отсутствие вируса и не является антивирусом. JavaScript и загрузки не выполняются. Для обнаружения вредоносных программ нужен отдельный изолированный анализ. Репутационные базы тоже могут ошибаться.",
+        "disclaimer": (
+            "Проверка не является антивирусом и не доказывает отсутствие вируса или другого вредоносного кода. "
+            + ("Файл по ссылке был получен и статически изучен без запуска; "
+               "скрытые угрозы могли остаться незамеченными. "
+               if download.get('status') == 'ok' else
+               "Файлы по ссылке не были скачаны и исследованы целиком. ")
+            + ("Прочитан только ограниченный фрагмент HTML, JavaScript не выполнялся. "
+               if page.get('status') == 'ok' else
+               "Содержимое веб-страницы полностью не исследовалось. ")
+            + "Репутационные базы могут пропускать новые угрозы или ошибаться."
+        ),
     }

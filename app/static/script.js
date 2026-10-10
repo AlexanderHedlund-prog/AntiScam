@@ -99,18 +99,24 @@ function drawReport(data, ids) {
     setText(ids.detail, data.detail);
   }
   const providers = $(ids.providers); providers.replaceChildren();
-  for (const provider of data.providers || []) {
-    if (ids.result === 'file-result' && provider.name?.includes('Собственный')) continue;
-    providerRow(providers, provider);
+  const availableProviders = (data.providers || []).filter(provider =>
+    !(ids.result === 'file-result' && provider.name?.includes('Собственный'))
+  );
+  // Skip notices for Google/VirusTotal are identical without URL sharing.
+  // Show one transparent combined notice rather than repeating the same sentence twice.
+  if (ids.result === 'result' && availableProviders.length === 2 &&
+      availableProviders.every(provider => provider.status === 'skipped')) {
+    providerRow(providers, {name:'Внешние базы не запускались', status:'skipped',
+      message:'Google Safe Browsing и VirusTotal не запрашивались: согласие на передачу URL не предоставлено.'});
+  } else {
+    for (const provider of availableProviders) providerRow(providers, provider);
   }
   const signals = $(ids.signals); signals.replaceChildren();
-  if ((!data.signals || data.signals.length === 0) && ids.result !== 'file-result') {
-    const node = document.createElement('div'); node.className = 'signal passive';
-    const dot = document.createElement('span'); dot.className = 'signal-dot'; dot.textContent = '✓';
-    const description = document.createElement('span'); description.textContent = 'Явных признаков риска в доступных данных не выявлено. Это не доказывает безопасность.';
-    node.append(dot, description); signals.append(node);
-  } else {
-    for (const signal of data.signals || []) signalRow(signals, signal);
+  // Do not repeat "no signs detected" below the short verdict and local summary.
+  // If actual signals exist, show them prominently as before.
+  for (const signal of data.signals || []) signalRow(signals, signal);
+  if (ids.result === 'result') {
+    $('url-signal-section').classList.toggle('hidden', !(data.signals || []).length);
   }
   setText(ids.disclaimer, data.disclaimer);
   $(ids.result).classList.remove('hidden');
@@ -219,11 +225,16 @@ $('check-form').addEventListener('submit', async (event) => {
     drawDownloadInspection(data.download_inspection);
     setText('content-label', data.content.label);
     setText('content-basis', data.content.basis);
+    setText('content-source-label', data.download_inspection?.status === 'ok'
+      ? 'СОДЕРЖИМОЕ ПОЛУЧЕННОГО ФАЙЛА'
+      : data.page_inspection?.status === 'ok'
+        ? 'СОДЕРЖИМОЕ ПРОСМОТРЕННОЙ СТРАНИЦЫ'
+        : 'ПРЕДПОЛАГАЕМОЕ СОДЕРЖИМОЕ');
     const headerNames = {ok:'Получены', skipped:'Не запрашивались', unknown:'Не удалось получить'};
     setText('header-status', headerNames[data.header_probe.status] || 'Неизвестно');
     setText('header-message', data.header_probe.message);
     drawQuickVerdict(data, 'url');
-    drawReport(data, {banner:'risk-banner', symbol:'risk-symbol', title:'risk-title', detail:'risk-text', providers:'provider-list', signals:'signal-list', disclaimer:'disclaimer', result:'result'});
+    drawReport(data, {providers:'provider-list', signals:'signal-list', disclaimer:'disclaimer', result:'result'});
   } catch (error) {
     displayError('error-box', error.name === 'AbortError' ? 'Превышено время ожидания. Попробуйте ещё раз.' : 'Не удалось проверить: ' + error.message);
   } finally { $('submit-btn').disabled = false; setText('submit-text', 'Проверить ссылку'); }

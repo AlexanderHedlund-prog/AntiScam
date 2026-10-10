@@ -169,3 +169,37 @@
   #disclaimer,#file-disclaimer{font-size:10px!important;line-height:1.4!important;margin:3mm 0!important}
   .site-footer{display:none!important}
 }
+
+
+/* v1.3.1: readable, compact, non-fragmenting browser PDF reports. */
+@media print {
+  /* Disable clipping/scroll containers; allow automatic A4 page breaks. */
+  .result-card, .result-body, .rows, .tool-panel, .scanner-shell {
+    overflow:visible!important; max-height:none!important;
+  }
+  .result-body { padding:0 3mm!important; }
+  .report-stamp {margin:0 0 4mm!important;font-size:10px!important;}
+  .result-card .quick-verdict {margin:0 0 5mm!important;padding:5mm 6mm!important;}
+  .quick-verdict h3{font-size:19px!important;}
+  .quick-verdict>p:last-child{font-size:11px!important;line-height:1.4!important;}
+  .value-break {font-size:13px!important;overflow-wrap:anywhere!important;word-break:break-word!important;}
+  .result-label {font-size:10px!important;}
+  .list-heading {font-size:14px!important;margin:5mm 0 2mm!important;break-after:avoid-page!important;page-break-after:avoid!important;}
+  .rows {display:block!important;}
+  .rows > * {margin:0 0 2.5mm!important;}
+  .provider, .signal, .result-tile, .compact-statuses > div, .coverage-notice,
+  .compact-alerts, #download-inspection, .compact-file-meta, .archive-item {
+    break-inside:avoid-page!important;page-break-inside:avoid!important;
+  }
+  .provider,.signal {padding:3mm 4mm!important;border:1px solid #ddd!important;}
+  .provider p,.signal {font-size:11px!important;line-height:1.35!important;}
+  .result-two{gap:3mm!important;break-inside:avoid-page!important;page-break-inside:avoid!important;}
+  .result-tile{padding:4mm!important;}
+  .result-tile h4 {font-size:13px!important;}
+  .result-tile p:last-child{font-size:10px!important;}
+  .disclaimer{font-size:10px!important;line-height:1.4!important;margin:4mm 0!important;}
+  .result-body > .result-label{break-after:avoid-page!important;}
+  .result-card .hidden {display:none!important;}
+  /* A printed report should not include redundant empty sections. */
+  #url-signal-section.hidden {display:none!important;}
+}

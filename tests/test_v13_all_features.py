@@ -79,7 +79,7 @@ def test_office_pdf_zip_additional_static_signals():
 
 def test_six_features_appear_in_web_interface():
     with TestClient(app) as client:
-        assert client.get('/health').json()['version'] == '1.3.0'
+        assert client.get('/health').json()['version'] == '1.3.1'
         html = client.get('/').text
     for marker in ['download-opt', 'download-inspection', 'redirect-chain', 'print-report', 'inspect-page-opt', 'own-analysis']:
         assert marker in html
