@@ -19,7 +19,7 @@ from app.vt_file_submission import uploads_enabled, check_analysis
 
 load_dotenv()
 BASE = Path(__file__).resolve().parent
-app = FastAPI(title='AntiScam API', version='1.2.0', docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title='AntiScam API', version='1.3.0', docs_url=None, redoc_url=None, openapi_url=None)
 app.mount('/assets', StaticFiles(directory=BASE / 'static'), name='assets')
 _LIMIT = int(os.getenv('RATE_LIMIT_PER_MINUTE', '12'))
 _TRAFFIC: dict[str, deque[float]] = defaultdict(deque)
@@ -34,6 +34,7 @@ class ScanRequest(BaseModel):
     share_with_services: bool = False
     inspect_headers: bool = False
     inspect_page: bool = False
+    inspect_download: bool = False
 
 
 class VTStatusRequest(BaseModel):
@@ -101,7 +102,7 @@ async def index():
 
 @app.get('/health')
 async def health():
-    return {'status': 'ok', 'service': 'AntiScam', 'version': '1.2.0'}
+    return {'status': 'ok', 'service': 'AntiScam', 'version': '1.3.0'}
 
 
 @app.get('/api/providers')
@@ -121,7 +122,7 @@ async def scan(payload: ScanRequest, request: Request):
     if not await check_rate_limit(ip):
         raise HTTPException(status_code=429, detail='Слишком много проверок. Повторите попытку через минуту.')
     try:
-        return await analyse_url(payload.url, payload.share_with_services, payload.inspect_headers, payload.inspect_page)
+        return await analyse_url(payload.url, payload.share_with_services, payload.inspect_headers, payload.inspect_page, payload.inspect_download)
     except URLValidationError as exc:
         return JSONResponse(status_code=422, content={'detail': str(exc)})
 

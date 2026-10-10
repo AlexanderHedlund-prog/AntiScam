@@ -400,7 +400,7 @@ async def virustotal_check(url: str, api_key: str | None) -> dict[str, Any]:
         return {'name': provider, 'status': 'error', 'message': 'Сервис временно недоступен.', 'detections': 0}
 
 
-async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_page_content: bool = False) -> dict[str, Any]:
+async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_page_content: bool = False, inspect_download: bool = False) -> dict[str, Any]:
     link = validate_url(raw)
     gkey = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY", "").strip()
     vkey = os.getenv("VIRUSTOTAL_API_KEY", "").strip()
@@ -414,6 +414,9 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
     if inspect_page_content:
         from app.page_inspector import inspect_page
         calls.append(inspect_page(link))
+    if inspect_download:
+        from app.remote_file import inspect_remote_file
+        calls.append(inspect_remote_file(link))
     results = await asyncio.gather(*calls) if calls else []
     providers = results[:2] if consent else [
         _inactive("Google Safe Browsing", "Не разрешена передача URL внешним сервисам."),
@@ -426,6 +429,14 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
         "status": "skipped", "message": "Содержимое страницы не запрашивалось.",
         "signals": [], "title": None, "final_host": None, "kind": None,
     }
+    download_index = page_index + (1 if inspect_page_content else 0)
+    download = results[download_index] if inspect_download else {
+        'status': 'skipped', 'message': 'Файл по ссылке не скачивался.', 'signals': []
+    }
+    if download.get('status') == 'ok':
+        signals.extend(download.get('signals', []))
+    elif download.get('status') == 'blocked':
+        signals.append({'severity': 'medium', 'text': 'Запрещённое перенаправление при получении файла.', 'source': 'file'})
     if page.get('status') == 'ok':
         signals.extend(page.get('signals', []))
     elif page.get('status') == 'blocked':
@@ -448,7 +459,7 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
         risk = "caution"
         title = "Требуется осторожность"
         detail = "Есть признаки риска. Они не доказывают наличие вируса, но ссылку лучше не открывать без дополнительной проверки."
-    elif checked_any and (any(p["status"] != "checked" for p in providers) or (inspect_page_content and page.get("status") != "ok")):
+    elif checked_any and (any(p["status"] != "checked" for p in providers) or (inspect_page_content and page.get("status") != "ok") or (inspect_download and download.get("status") != "ok")):
         # A clean report from one database cannot make an incomplete check green.
         risk = "unknown"
         title = "Проверка выполнена частично"
@@ -474,5 +485,6 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
         "providers": providers,
         "header_probe": {"status": probe["status"], "message": probe["message"]},
         "page_inspection": page,
+        "download_inspection": download,
         "disclaimer": "Анализ адреса и ограниченного фрагмента HTML не доказывает отсутствие вируса и не является антивирусом. JavaScript и загрузки не выполняются. Для обнаружения вредоносных программ нужен отдельный изолированный анализ. Репутационные базы тоже могут ошибаться.",
     }

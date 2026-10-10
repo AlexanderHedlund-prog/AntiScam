@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlsplit, unquote
 import aiohttp
 
 from app.scanner import GuardedResolver, URLValidationError, validate_url
+from app.local_url_analysis import OFFICIAL_DOMAINS
 
 MAX_PREVIEW = 128 * 1024
 MAX_REDIRECTS = 3
@@ -55,6 +56,9 @@ class StaticHTMLInspector(HTMLParser):
         self.script_text_parts: list[str] = []
         self.in_script = False
         self.form_count = 0
+        self.insecure_password_form = 0
+        self.password_fields = 0
+        self.form_external_count = 0
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -69,12 +73,17 @@ class StaticHTMLInspector(HTMLParser):
                     action_host = _origin_host(action_url)
                 except (ValueError, TypeError):
                     action_host = ''
-                form = {'password': False, 'external': bool(action_host and action_host != self.host)}
+                form = {'password': False, 'external': bool(action_host and action_host != self.host), 'action_host': action_host}
                 self.forms.append(form)
+                if form['external']:
+                    self.form_external_count += 1
                 self.current_form = form
         if tag == 'input' and self.current_form is not None:
             if str(attrs.get('type') or '').lower() == 'password':
                 self.current_form['password'] = True
+                self.password_fields += 1
+                if urlsplit(self.page_url).scheme == 'http':
+                    self.insecure_password_form += 1
         if tag == 'iframe':
             src = str(attrs.get('src') or '')
             style = str(attrs.get('style') or '').lower().replace(' ', '')
@@ -127,6 +136,17 @@ class StaticHTMLInspector(HTMLParser):
         signals: list[dict[str, str]] = []
         if any(f['password'] and f['external'] for f in self.forms):
             signals.append(_signal('high', 'Форма для пароля отправляет данные на другой домен. Проверьте подлинность страницы.'))
+        if self.insecure_password_form:
+            signals.append(_signal('high', 'Форма ввода пароля расположена на незашифрованной HTTP-странице.'))
+        if self.form_external_count and self.password_fields == 0:
+            signals.append(_signal('low', 'Есть форма, передающая данные на другой домен. Это бывает и у легитимных сервисов.'))
+        # Brand words in a title are weak evidence. Alert only together with a login form.
+        title_lower = ' '.join(self.title_parts).lower()
+        if self.password_fields:
+            for brand, roots in OFFICIAL_DOMAINS.items():
+                if brand in title_lower and not any(self.host == r or self.host.endswith('.' + r) for r in roots):
+                    signals.append(_signal('medium', 'Заголовок страницы упоминает известный сервис, но форма пароля находится на другом домене. Возможна имитация входа.'))
+                    break
         if self.hidden_external_frames:
             signals.append(_signal('medium', 'На странице есть скрытый iframe, ведущий на другой домен. Это может быть легитимным виджетом или признаком риска.'))
         if self.external_refreshes:
@@ -140,6 +160,7 @@ class StaticHTMLInspector(HTMLParser):
         return {
             'title': title or 'Заголовок не обнаружен',
             'forms': self.form_count,
+            'password_fields': self.password_fields,
             'scripts': self.total_scripts,
             'external_scripts': self.external_scripts,
             'suspicious_links': self.executable_links,
@@ -197,7 +218,7 @@ def summarise_page(data: bytes, url: str, declared_type: str, truncated: bool = 
 
 def _result(status: str, message: str, **kw):
     return {'status': status, 'message': message, 'final_host': None, 'destination': None,
-            'redirects': 0, 'mime': None, 'kind': None, 'title': None,
+            'redirects': 0, 'redirect_chain': [], 'mime': None, 'kind': None, 'title': None,
             'forms': 0, 'scripts': 0, 'external_scripts': 0, 'suspicious_links': 0,
             'signals': [], 'bytes_read': 0, 'truncated': False, **kw}
 
@@ -212,6 +233,7 @@ async def _inspect_page_unlimited(link) -> dict:
     connector = aiohttp.TCPConnector(resolver=GuardedResolver(), use_dns_cache=False,
                                      force_close=True, limit=2, ssl=True)
     url = link.original
+    chain = []
     try:
         async with aiohttp.ClientSession(
             connector=connector, timeout=timeout, trust_env=False, auto_decompress=False,
@@ -221,30 +243,31 @@ async def _inspect_page_unlimited(link) -> dict:
         ) as session:
             for hop in range(MAX_REDIRECTS + 1):
                 valid = validate_url(url)
+                chain.append({'host': valid.host, 'scheme': valid.scheme})
                 async with session.get(url, allow_redirects=False, max_field_size=8190) as resp:
                     if resp.status in {301, 302, 303, 307, 308}:
                         target = resp.headers.get('Location', '')
                         if not target or hop == MAX_REDIRECTS:
-                            return _result('incomplete', 'Переадресаций слишком много или не указан следующий адрес.', redirects=hop)
+                            return _result('incomplete', 'Переадресаций слишком много или не указан следующий адрес.', redirects=hop, redirect_chain=chain)
                         url = urljoin(url, target)
                         try:
                             validate_url(url)
                         except URLValidationError:
-                            return _result('blocked', 'Переадресация ведёт на запрещённый или внутренний адрес. Запрос остановлен.', redirects=hop + 1)
+                            return _result('blocked', 'Переадресация ведёт на запрещённый или внутренний адрес. Запрос остановлен.', redirects=hop + 1, redirect_chain=chain)
                         continue
                     if resp.status >= 400:
-                        return _result('incomplete', f'Сайт ответил HTTP {resp.status}; содержимое не удалось проверить.', redirects=hop,
+                        return _result('incomplete', f'Сайт ответил HTTP {resp.status}; содержимое не удалось проверить.', redirects=hop, redirect_chain=chain,
                                        final_host=valid.host, destination=valid.safe_display)
                     declared = resp.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
                     if resp.headers.get('Content-Encoding', '').lower().strip() not in {'', 'identity'}:
                         return _result('incomplete', 'Сайт передал сжатый ответ; содержимое не распаковывалось ради безопасности.',
-                                       final_host=valid.host, destination=valid.safe_display, redirects=hop, mime=declared)
+                                       final_host=valid.host, destination=valid.safe_display, redirects=hop, redirect_chain=chain, mime=declared)
                     sample = await resp.content.read(MAX_PREVIEW + 1)
                     truncated = len(sample) > MAX_PREVIEW
                     data = sample[:MAX_PREVIEW]
                     if not data:
                         return _result('incomplete', 'Сайт вернул пустой ответ; анализ содержимого невозможен.',
-                                       final_host=valid.host, redirects=hop, mime=declared)
+                                       final_host=valid.host, redirects=hop, redirect_chain=chain, mime=declared)
                     parsed = summarise_page(data, url, declared, truncated)
                     if valid.host != link.host:
                         parsed['signals'].append(_signal('medium', 'После переадресации конечный сайт находится на другом домене.'))
@@ -252,9 +275,9 @@ async def _inspect_page_unlimited(link) -> dict:
                         parsed['signals'].append(_signal('medium', 'Ссылка переадресовала с HTTPS на незашифрованный HTTP.'))
                     return _result('ok', 'Получен ограниченный фрагмент ответа без выполнения JavaScript. Это не антивирусная проверка.',
                                    final_host=valid.host, destination=f"{valid.scheme}://{valid.host}", redirects=hop, mime=declared,
-                                   bytes_read=len(data), **parsed)
+                                   bytes_read=len(data), redirect_chain=chain, **parsed)
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, URLValidationError):
-        return _result('incomplete', 'Не удалось безопасно получить страницу (соединение, DNS, сертификат или тайм-аут).')
+        return _result('incomplete', 'Не удалось безопасно получить страницу (соединение, DNS, сертификат или тайм-аут).', redirect_chain=chain)
     return _result('incomplete', 'Не удалось получить содержимое страницы.')
 
 

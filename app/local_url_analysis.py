@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import unicodedata
 from pathlib import PurePosixPath
 from urllib.parse import parse_qsl, unquote, urlsplit
 
@@ -83,8 +84,22 @@ def analyse_locally(link) -> dict:
 
     if 'xn--' in host.split('.') or any(label.startswith('xn--') for label in host.split('.')):
         add('punycode', 'medium', 'Домен записан через Punycode. Проверьте, не имитирует ли он знакомый сайт.')
-    if re.search(r'[а-яё]', host) and re.search(r'[a-z]', host):
+    try:
+        decoded_host = host.encode('ascii').decode('idna') if 'xn--' in host else host
+    except (UnicodeError, ValueError):
+        decoded_host = host
+    if re.search(r'[а-яё]', decoded_host) and re.search(r'[a-z]', decoded_host):
         add('mixed_script', 'high', 'В домене смешаны кириллические и латинские буквы: возможна подмена похожих символов.')
+
+    # Approximate typos in brand labels only alongside an auth/payment lure.
+    # This is a warning of resemblance, not a claim of confirmed phishing.
+    def near_brand(label: str, brand: str) -> bool:
+        if len(brand) < 5 or abs(len(label) - len(brand)) > 1 or label == brand:
+            return False
+        if len(label) == len(brand):
+            return sum(a != b for a, b in zip(label, brand)) == 1
+        short, long = (label, brand) if len(label) < len(brand) else (brand, label)
+        return any(short == long[:i] + long[i+1:] for i in range(len(long)))
 
     # Only alert on common brands when there is also a login/payment lure;
     # ordinary unrelated words or subdomains must not be called fraudulent.
@@ -96,7 +111,8 @@ def analyse_locally(link) -> dict:
             continue
         spoof_root = any(label == brand for label in labels[1:-1])
         branded_word = any(_label_looks_like_brand(word, brand) for word in flat_tokens)
-        if spoof_root or (branded_word and lure):
+        typo_lure = lure and any(near_brand(label, brand) for label in labels[:-1])
+        if spoof_root or (branded_word and lure) or typo_lure:
             add('brand_spoof', 'high', 'Домен напоминает адрес известного сервиса, но не совпадает с его официальным адресом. Возможен фишинг.')
             break
 

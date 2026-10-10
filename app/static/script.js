@@ -158,7 +158,33 @@ function drawPageInspection(info) {
   setText('page-size', 'Прочитано: ' + (info.bytes_read || 0) + ' байт' + (info.truncated ? ' (фрагмент, страница больше)' : ''));
   setText('page-title', info.title || 'Не определён');
   setText('page-findings', 'HTML-форм: ' + (info.forms || 0) + ' · Скриптов (не запускались): ' + (info.scripts || 0) + ' · Ссылок на исполняемые файлы: ' + (info.suspicious_links || 0));
+  const chain = $('redirect-chain'); chain.replaceChildren();
+  for (const hop of info.redirect_chain || []) {
+    const li = document.createElement('li'); li.textContent = hop.scheme + '://' + hop.host;
+    chain.append(li);
+  }
+  if (!chain.childElementCount) { const li = document.createElement('li'); li.textContent = 'Не удалось установить цепочку'; chain.append(li); }
 }
+
+function drawDownloadInspection(info) {
+  const card = $('download-inspection');
+  card.classList.toggle('hidden', !info || info.status === 'skipped');
+  if (!info || info.status === 'skipped') return;
+  setText('download-state', info.status === 'ok' ? 'Проанализировано' : info.status === 'blocked' ? 'Заблокировано' : 'Не удалось');
+  setText('download-message', info.message || 'Нет данных.');
+  setText('download-kind', info.kind || 'Не установлен');
+  setText('download-size', Number.isFinite(info.size) ? readableSize(info.size) : '—');
+}
+
+// PDF is produced locally by the browser's Print / Save as PDF option.
+// No untrusted data is inserted as HTML or sent to a third-party report service.
+document.querySelectorAll('.print-report').forEach((button) => {
+  button.addEventListener('click', () => {
+    document.body.classList.add('printing-' + button.dataset.report);
+    window.print();
+  });
+});
+window.addEventListener('afterprint', () => document.body.classList.remove('printing-url', 'printing-file'));
 
 function displayError(id, message) {
   $(id).textContent = message;
@@ -184,11 +210,13 @@ $('check-form').addEventListener('submit', async (event) => {
   try {
     const data = await requestJSON('/api/scan', {
       method:'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({url, share_with_services: $('share-opt').checked, inspect_headers: $('headers-opt').checked, inspect_page: $('inspect-page-opt').checked})
+      body: JSON.stringify({url, share_with_services: $('share-opt').checked, inspect_headers: $('headers-opt').checked, inspect_page: $('inspect-page-opt').checked, inspect_download: $('download-opt').checked})
     }, 30000);
     setText('result-url', data.display_url);
+    setText('url-report-date', 'AntiScam · отчёт создан: ' + new Date().toLocaleString('ru-RU')); 
     drawOwnAnalysis(data.local_analysis);
     drawPageInspection(data.page_inspection);
+    drawDownloadInspection(data.download_inspection);
     setText('content-label', data.content.label);
     setText('content-basis', data.content.basis);
     const headerNames = {ok:'Получены', skipped:'Не запрашивались', unknown:'Не удалось получить'};
@@ -391,6 +419,7 @@ $('file-form').addEventListener('submit', async (event) => {
   try {
     const data = await requestJSON('/api/scan-file', {method:'POST', body:form}, 50000);
     lastFileReport = data;
+    setText('file-report-date', 'AntiScam · отчёт создан: ' + new Date().toLocaleString('ru-RU'));
     redrawFileReport(data);
     if (data.vt_analysis_token) {
       // One delayed status check: avoid exhausting the free public VirusTotal quota.

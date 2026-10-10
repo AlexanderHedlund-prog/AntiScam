@@ -126,3 +126,46 @@
   .file-result-compact .quick-verdict h3{font-size:22px}
   .compact-statuses>div{padding:11px 13px}
 }
+
+/* v1.3: compact, optional details and browser-generated PDF. */
+.report-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 14px}
+.report-toolbar .choose-btn{font-size:13px;padding:10px 14px}
+.report-toolbar span{font-size:11px;opacity:.85}
+.redirect-steps{margin:0;padding-left:22px;line-height:1.65;font-size:13px;overflow-wrap:anywhere}
+.compact-chain{margin-top:14px}
+.compact-chain p{font-size:12px;opacity:.85}
+@media print{
+  @page{size:A4;margin:16mm}
+  body, main,.scanner-area,.scanner-shell,.tool-panel,.result-card{background:#fff!important;color:#111!important;box-shadow:none!important;max-width:100%!important;border:0!important}
+  .site-header,.site-footer,.hero,.tool-tabs,.panel-heading,.under-tool, #check-form,#file-form,#error-box,#file-error,.report-toolbar,.vt-scan-progress,.result-details summary{display:none!important}
+  #scan-pages,.scanner-area,.scanner-shell{display:block!important;padding:0!important;margin:0!important}
+  body.printing-url #file-panel, body.printing-file #link-panel{display:none!important}
+  body.printing-url #link-panel, body.printing-file #file-panel{display:block!important}
+  body.printing-url #result, body.printing-file #file-result{display:block!important;overflow:visible!important;padding:0!important;margin:0!important}
+  .quick-verdict,.risk-banner,.result-tile,.own-analysis,.provider,.signal,.compact-statuses>div,.compact-file-body{color:#111!important;background:#fff!important;border:1px solid #ddd!important;print-color-adjust:exact}
+  .result-details:not([open]){display:none!important}
+  .compact-coverage,.compact-alerts{break-inside:avoid}
+  .result-label,.quick-verdict-kicker{color:#333!important}
+  .hidden{display:none!important}
+}
+
+.scan-options{margin:14px 0!important;background:rgba(255,255,255,.06)!important}
+.scan-options .details-inner .option:first-child{margin-top:0}
+.scan-options .option-note{margin-bottom:11px}
+
+.report-stamp{display:none}
+@media print{.report-stamp{display:block!important;color:#222!important;font-size:12px;margin:0 0 8mm}}
+/* Print-only readable monochrome report: avoid pale text and dark page gutters. */
+@media print {
+  @page{size:A4;margin:12mm}
+  html,body,main,#scan-pages,.scanner-area,.scanner-shell,.tool-panel {background:#fff!important;color:#111!important;padding:0!important;margin:0!important;min-height:0!important}
+  .result-card,.result-card *{color:#111!important;text-shadow:none!important}
+  .result-card{margin:0!important;padding:0!important;border-radius:0!important}
+  .result-card .quick-verdict{margin:0 0 5mm!important;padding:10mm!important;border:1px solid #ccc!important}
+  .result-card .quick-verdict *{color:#111!important}
+  body.printing-url #risk-banner{display:none!important}
+  body.printing-url #own-analysis{display:none!important}
+  .result-two,.result-tile{break-inside:avoid}
+  #disclaimer,#file-disclaimer{font-size:10px!important;line-height:1.4!important;margin:3mm 0!important}
+  .site-footer{display:none!important}
+}

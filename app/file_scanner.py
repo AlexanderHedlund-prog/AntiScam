@@ -127,6 +127,8 @@ def _zip_summary(data: bytes, signals: list[dict[str, str]]) -> tuple[str, str, 
                 signals.append(_signal('high', 'В архиве есть сильно сжатые большие элементы — возможна архивная бомба.'))
             if any(i.flag_bits & 1 for i in infos):
                 signals.append(_signal('medium', 'В архиве присутствуют зашифрованные элементы: их содержимое недоступно для анализа.'))
+            if any(n.endswith(('.rels',)) and ('_rels/' in n) for n in names) and not is_office:
+                pass  # Relationship XML only meaningful inside recognized Office containers.
             if any('vbaproject.bin' in n for n in names):
                 signals.append(_signal('high', 'В Office-документе обнаружен файл макросов VBA. Не разрешайте запуск макросов.'))
             if any('/embeddings/' in n or n.startswith('embeddings/') for n in names):
@@ -162,6 +164,21 @@ def _zip_summary(data: bytes, signals: list[dict[str, str]]) -> tuple[str, str, 
                         continue
                     if re.search(rb'TargetMode\s*=\s*["\']External["\']', text, re.I):
                         external_target = True
+                # DDE/AUTOEXEC-style fields are not executed; inspect small Office XML only.
+                dangerous_fields = False
+                for info in infos[:1000]:
+                    if not info.filename.lower().endswith(('document.xml', 'workbook.xml', 'presentation.xml')):
+                        continue
+                    if info.file_size > 64 * 1024 or info.compress_size > 64 * 1024 or info.flag_bits & 1:
+                        continue
+                    try:
+                        fragment = archive.read(info).lower()
+                        if b'ddeauto' in fragment or b'dde ' in fragment:
+                            dangerous_fields = True
+                    except (RuntimeError, OSError, ValueError, zipfile.BadZipFile):
+                        pass
+                if dangerous_fields:
+                    signals.append(_signal('high', 'В Office-документе обнаружены признаки DDE-команд. Не разрешайте запуск внешних действий.'))
                 if external_target:
                     signals.append(_signal('medium', 'В Office-документе найдены ссылки на внешние ресурсы. Они могут быть обычными гиперссылками, но требуют внимания.'))
 
@@ -222,7 +239,7 @@ def inspect_file(data: bytes, uploaded_name: str) -> dict[str, Any]:
                                'Фактический формат не совпадает с расширением имени файла.'))
     if kind == 'pdf':
         head = data[:min(len(data), 1024 * 1024)]
-        if re.search(rb'/(?:JavaScript|JS|Launch|OpenAction|AA)\b', head):
+        if re.search(rb'/(?:JavaScript|JS|Launch|OpenAction|AA|RichMedia|XFA)\b', head):
             signals.append(_signal('medium', 'В PDF есть признаки активных действий, скриптов или автоматического открытия.'))
         if b'/EmbeddedFile' in head or b'/Filespec' in head:
             signals.append(_signal('medium', 'В PDF есть признаки встроенного вложения.'))
