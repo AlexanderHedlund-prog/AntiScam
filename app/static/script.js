@@ -107,7 +107,7 @@ function drawReport(data, ids) {
   if (ids.result === 'result' && availableProviders.length === 2 &&
       availableProviders.every(provider => provider.status === 'skipped')) {
     providerRow(providers, {name:'Внешние базы не запускались', status:'skipped',
-      message:'Google Safe Browsing и VirusTotal не запрашивались: согласие на передачу URL не предоставлено.'});
+      message:'Проверка Google Safe Browsing и VirusTotal выключена в настройках. Адрес им не отправлялся.'});
   } else {
     for (const provider of availableProviders) providerRow(providers, provider);
   }
@@ -154,16 +154,19 @@ function drawPageInspection(info) {
   const section = $('page-inspection');
   section.classList.toggle('hidden', !info || info.status === 'skipped');
   if (!info || info.status === 'skipped') return;
-  const statuses = {ok:'Частично просмотрено', incomplete:'Не удалось', blocked:'Заблокировано'};
-  setText('page-state', statuses[info.status] || 'Неизвестно');
+  const statuses = {ok:'Ответ прочитан частично', incomplete:'Не удалось', blocked:'Заблокировано'};
+  setText('page-state', info.http_status === 404 ? 'Страница не найдена (404)' : (statuses[info.status] || 'Неизвестно'));
   $('page-state').className = 'own-level ' + (info.status === 'ok' ? 'own-low' : 'own-medium');
   setText('page-message', info.message);
   setText('page-domain', info.final_host || 'Не удалось установить');
   setText('page-redirects', 'HTTP-переадресаций: ' + (info.redirects || 0));
   setText('page-kind', info.kind || 'Неизвестно');
   setText('page-size', 'Прочитано: ' + (info.bytes_read || 0) + ' байт' + (info.truncated ? ' (фрагмент, страница больше)' : ''));
+  const htmlResponse = info.status === 'ok' && String(info.kind || '').startsWith('HTML-страница');
+  $('page-title').parentElement.classList.toggle('hidden', !htmlResponse);
+  $('page-findings').classList.toggle('hidden', !htmlResponse);
   setText('page-title', info.title || 'Не определён');
-  setText('page-findings', 'HTML-форм: ' + (info.forms || 0) + ' · Скриптов (не запускались): ' + (info.scripts || 0) + ' · Ссылок на исполняемые файлы: ' + (info.suspicious_links || 0));
+  setText('page-findings', htmlResponse ? 'HTML-форм: ' + (info.forms || 0) + ' · Скриптов (не запускались): ' + (info.scripts || 0) + ' · Ссылок на исполняемые файлы: ' + (info.suspicious_links || 0) : '');
   const chain = $('redirect-chain'); chain.replaceChildren();
   for (const hop of info.redirect_chain || []) {
     const li = document.createElement('li'); li.textContent = hop.scheme + '://' + hop.host;
@@ -176,7 +179,8 @@ function drawDownloadInspection(info) {
   const card = $('download-inspection');
   card.classList.toggle('hidden', !info || info.status === 'skipped');
   if (!info || info.status === 'skipped') return;
-  setText('download-state', info.status === 'ok' ? 'Проанализировано' : info.status === 'blocked' ? 'Заблокировано' : 'Не удалось');
+  setText('download-state', info.status === 'ok' ? 'Проанализировано' : info.status === 'not_file' ? 'Это веб-страница, не файл' : info.status === 'blocked' ? 'Заблокировано' : 'Не удалось');
+  $('download-meta').classList.toggle('hidden', info.status !== 'ok');
   setText('download-message', info.message || 'Нет данных.');
   setText('download-kind', info.kind || 'Не установлен');
   setText('download-size', Number.isFinite(info.size) ? readableSize(info.size) : '—');
@@ -231,7 +235,7 @@ $('check-form').addEventListener('submit', async (event) => {
         ? 'СОДЕРЖИМОЕ ПРОСМОТРЕННОЙ СТРАНИЦЫ'
         : 'ПРЕДПОЛАГАЕМОЕ СОДЕРЖИМОЕ');
     const headerNames = {ok:'Получены', skipped:'Не запрашивались', unknown:'Не удалось получить'};
-    setText('header-status', headerNames[data.header_probe.status] || 'Неизвестно');
+    setText('header-status', data.header_probe.http_status === 404 ? 'HTTP 404 — страница не найдена' : (headerNames[data.header_probe.status] || 'Неизвестно'));
     setText('header-message', data.header_probe.message);
     drawQuickVerdict(data, 'url');
     drawReport(data, {providers:'provider-list', signals:'signal-list', disclaimer:'disclaimer', result:'result'});

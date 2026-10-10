@@ -256,7 +256,9 @@ async def _inspect_page_unlimited(link) -> dict:
                             return _result('blocked', 'Переадресация ведёт на запрещённый или внутренний адрес. Запрос остановлен.', redirects=hop + 1, redirect_chain=chain)
                         continue
                     if resp.status >= 400:
-                        return _result('incomplete', f'Сайт ответил HTTP {resp.status}; содержимое не удалось проверить.', redirects=hop, redirect_chain=chain,
+                        explanation = ('HTTP 404 — страница не найдена. Сервер ответил, но запрошенный ресурс отсутствует. Сам по себе код 404 не является признаком вируса.'
+                                       if resp.status == 404 else f'Сервер ответил HTTP {resp.status}; содержимое не удалось проверить.')
+                        return _result('incomplete', explanation, http_status=resp.status, redirects=hop, redirect_chain=chain,
                                        final_host=valid.host, destination=valid.safe_display)
                     declared = resp.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
                     if resp.headers.get('Content-Encoding', '').lower().strip() not in {'', 'identity'}:
@@ -273,7 +275,10 @@ async def _inspect_page_unlimited(link) -> dict:
                         parsed['signals'].append(_signal('medium', 'После переадресации конечный сайт находится на другом домене.'))
                     if link.scheme == 'https' and valid.scheme == 'http':
                         parsed['signals'].append(_signal('medium', 'Ссылка переадресовала с HTTPS на незашифрованный HTTP.'))
-                    return _result('ok', 'Получен ограниченный фрагмент ответа без выполнения JavaScript. Это не антивирусная проверка.',
+                    return _result('ok', ('Прочитан ограниченный фрагмент HTML без выполнения JavaScript.'
+                                          if str(parsed.get('kind', '')).startswith('HTML-страница') else
+                                          'Прочитан ограниченный фрагмент ответа сервера без выполнения содержимого.')
+                                   + ' Это не антивирусная проверка.',
                                    final_host=valid.host, destination=f"{valid.scheme}://{valid.host}", redirects=hop, mime=declared,
                                    bytes_read=len(data), redirect_chain=chain, **parsed)
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, URLValidationError):

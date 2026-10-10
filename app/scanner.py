@@ -214,7 +214,9 @@ async def probe_content(link: ValidURL) -> dict[str, Any]:
                     if resp.status == 405 or resp.status == 501:
                         return {"status": "unknown", "message": "Сервер не поддерживает проверку заголовков HEAD."}
                     if resp.status >= 400:
-                        return {"status": "unknown", "message": f"Сервер ответил кодом {resp.status}; формат не подтверждён."}
+                        msg = ("HTTP 404 — страница не найдена. Сервер ответил, но ресурс отсутствует. Это не свидетельствует о вирусе."
+                               if resp.status == 404 else f"Сервер ответил HTTP {resp.status}; формат не подтверждён.")
+                        return {"status": "unknown", "http_status": resp.status, "message": msg}
                     declared = resp.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
                     # Do not include full redirected URL (possible secret query string).
                     return {"status": "ok", "mime": declared or None,
@@ -450,7 +452,9 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
             local_analysis['summary'] = (
                 'По самому URL явных признаков не найдено. Отдельно выполнен статический анализ скачанного файла.'
                 if download.get('status') == 'ok' else
-                'По самому URL явных признаков не найдено. Отдельно просмотрен ограниченный фрагмент HTML.'
+                ('По самому URL явных признаков не найдено. Отдельно просмотрен ограниченный фрагмент HTML.'
+                 if str(page.get('kind', '')).startswith('HTML-страница') else
+                 'По самому URL явных признаков не найдено. Отдельно прочитан ограниченный фрагмент ответа сервера.')
             )
         local_analysis['limitations'] = (
             'Здесь оценивались только признаки URL. Результат проверки полученного файла показан отдельно выше; '
@@ -461,7 +465,15 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
         )
     content = guess_content(link, page.get('mime') if page.get('status') == 'ok' else (probe.get("mime") if probe.get("status") == "ok" else None))
     if page.get('status') == 'ok' and page.get('kind'):
-        content = {'label': page['kind'], 'basis': 'Прочитан ограниченный фрагмент HTML; динамические скрипты не запускались.', 'confidence': 'medium'}
+        is_html_page = str(page['kind']).startswith('HTML-страница')
+        content = {'label': page['kind'],
+                   'basis': ('Прочитан ограниченный фрагмент HTML; динамические скрипты не запускались.'
+                             if is_html_page else 'Прочитан ограниченный фрагмент ответа указанного формата без выполнения его содержимого.'),
+                   'confidence': 'medium'}
+    if download.get('status') == 'not_file':
+        content = {'label': 'HTML-страница (по HTTP-ответу)',
+                   'basis': 'Сервер сообщил, что это HTML-страница; загрузка файла отменена, HTML не анализировался.',
+                   'confidence': 'medium'}
     # When the opt-in downloader actually fetched bytes, never display the older
     # extension-only guess ("file was not downloaded") as the verified result.
     if download.get('status') == 'ok':
@@ -485,7 +497,7 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
         risk = "caution"
         title = "Требуется осторожность"
         detail = "Есть признаки риска. Они не доказывают наличие вируса, но ссылку лучше не открывать без дополнительной проверки."
-    elif checked_any and (any(p["status"] != "checked" for p in providers) or (inspect_page_content and page.get("status") != "ok") or (inspect_download and download.get("status") != "ok")):
+    elif checked_any and (any(p["status"] != "checked" for p in providers) or (inspect_page_content and page.get("status") != "ok") or (inspect_download and download.get("status") not in ("ok", "not_file"))):
         # A clean report from one database cannot make an incomplete check green.
         risk = "unknown"
         title = "Проверка выполнена частично"
@@ -498,11 +510,19 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
         risk = "unknown"
         title = "Недостаточно данных"
         detail = "Без доступных внешних проверок нельзя сделать вывод о безопасности ссылки."
+    quick_verdict = build_quick_verdict(risk, kind='url')
+    if risk == 'unknown' and download.get('status') == 'ok':
+        quick_verdict = {**quick_verdict,
+                         'answer': 'Антивирусный статус не установлен',
+                         'note': 'Файл получен и статически изучен. Антивирусной проверки не было; отсутствие вредоносного кода не подтверждено.'}
+    elif risk == 'unknown' and page.get('status') == 'ok':
+        quick_verdict = {**quick_verdict,
+                         'note': 'Просмотрен ограниченный ответ сайта, но без результатов внешних баз невозможно подтвердить отсутствие угроз.'}
     return {
         "domain": link.host,
         "display_url": link.safe_display,
         "risk": risk,
-        "quick_verdict": build_quick_verdict(risk, kind='url'),
+        "quick_verdict": quick_verdict,
         "title": title,
         "detail": detail,
         "content": content,
@@ -518,9 +538,11 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
                "скрытые угрозы могли остаться незамеченными. "
                if download.get('status') == 'ok' else
                "Файлы по ссылке не были скачаны и исследованы целиком. ")
-            + ("Прочитан только ограниченный фрагмент HTML, JavaScript не выполнялся. "
+            + (('Прочитан только ограниченный фрагмент HTML, JavaScript не выполнялся. '
+                if str(page.get('kind', '')).startswith('HTML-страница') else
+                'Прочитан только ограниченный фрагмент ответа сервера; содержимое не выполнялось. ')
                if page.get('status') == 'ok' else
-               "Содержимое веб-страницы полностью не исследовалось. ")
+               'Содержимое веб-страницы полностью не исследовалось. ')
             + "Репутационные базы могут пропускать новые угрозы или ошибаться."
         ),
     }

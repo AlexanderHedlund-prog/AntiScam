@@ -19,7 +19,7 @@ from app.vt_file_submission import uploads_enabled, check_analysis
 
 load_dotenv()
 BASE = Path(__file__).resolve().parent
-app = FastAPI(title='AntiScam API', version='1.3.1', docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title='AntiScam API', version='1.3.2', docs_url=None, redoc_url=None, openapi_url=None)
 app.mount('/assets', StaticFiles(directory=BASE / 'static'), name='assets')
 _LIMIT = int(os.getenv('RATE_LIMIT_PER_MINUTE', '12'))
 _TRAFFIC: dict[str, deque[float]] = defaultdict(deque)
@@ -102,7 +102,7 @@ async def index():
 
 @app.get('/health')
 async def health():
-    return {'status': 'ok', 'service': 'AntiScam', 'version': '1.3.1'}
+    return {'status': 'ok', 'service': 'AntiScam', 'version': '1.3.2'}
 
 
 @app.get('/api/providers')

@@ -53,7 +53,7 @@ def test_no_double_large_verdict_or_duplicate_passive_message():
     index = (BASE / 'index.html').read_text(encoding='utf-8')
     js = (BASE / 'script.js').read_text(encoding='utf-8')
     assert 'id="url-quick-verdict"' in index
-    assert '<span class="own-tag">v1.3.1</span>' in index
+    assert '<span class="own-tag">v1.3.2</span>' in index
     assert 'id="risk-banner"' not in index
     assert 'ПОДРОБНЫЙ РЕЗУЛЬТАТ' not in index
     assert 'id="url-signal-section"' in index
@@ -67,7 +67,7 @@ def test_print_rules_keep_provider_cards_intact_and_stamp():
     assert '.provider, .signal' in css
     assert '.report-stamp' in css
     with TestClient(app) as client:
-        assert client.get('/health').json()['version'] == '1.3.1'
+        assert client.get('/health').json()['version'] == '1.3.2'
         assert client.get('/').status_code == 200
         assert client.get('/agreement').status_code == 200
 
@@ -89,4 +89,4 @@ def test_download_local_url_summary_does_not_deny_fetch(monkeypatch):
 def test_skip_notices_collapsed_only_in_url_reports():
     js=(BASE/'script.js').read_text(encoding='utf-8')
     assert "availableProviders.every(provider => provider.status === 'skipped')" in js
-    assert 'Google Safe Browsing и VirusTotal не запрашивались' in js
+    assert 'Проверка Google Safe Browsing и VirusTotal выключена' in js

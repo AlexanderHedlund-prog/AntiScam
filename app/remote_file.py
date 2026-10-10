@@ -28,7 +28,7 @@ def remote_summary(data: bytes, url: str, mime: str) -> dict:
     mime = mime.split(';', 1)[0].lower().strip()
     prefix = data[:256].lstrip().lower()
     if mime in ('text/html', 'application/xhtml+xml') or prefix.startswith((b'<!doctype html', b'<html')):
-        return {'status': 'incomplete', 'message': 'Получена веб-страница, а не скачиваемый файл. Используйте просмотр страницы.', 'signals': []}
+        return {'status': 'not_file', 'kind': 'HTML-страница', 'message': 'По адресу находится веб-страница (HTML), а не скачиваемый файл. Для её анализа включите «Посмотреть содержимое страницы».', 'signals': []}
     filename = PurePosixPath(unquote(urlsplit(url).path)).name[:150] or 'download.bin'
     file_report = inspect_file(data, filename)
     malware = inspect_malware_indicators(data, filename)
@@ -79,7 +79,7 @@ async def _download(link):
                         return _empty('incomplete', 'Сжатый HTTP-ответ не распаковывается ради безопасности.', redirect_chain=chain)
                     mime = response.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
                     if mime in ('text/html', 'application/xhtml+xml'):
-                        return _empty('incomplete', 'Получена HTML-страница вместо файла. Используйте просмотр страницы.', redirect_chain=chain)
+                        return _empty('not_file', 'По адресу находится веб-страница (HTML), а не скачиваемый файл. Для её анализа включите «Посмотреть содержимое страницы».', kind='HTML-страница', redirect_chain=chain)
                     size_header = response.headers.get('Content-Length', '')
                     if size_header.isdecimal() and int(size_header) > MAX_DOWNLOAD:
                         return _empty('incomplete', 'Файл больше 2 МБ — загрузка отменена.', redirect_chain=chain)

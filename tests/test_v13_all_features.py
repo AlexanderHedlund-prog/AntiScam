@@ -30,8 +30,8 @@ def test_download_masqueraded_executable_detected():
 
 
 def test_html_refused_even_if_file_named_pdf():
-    assert remote_summary(b'<html>Fake login</html>', 'https://example.com/f.pdf', 'application/pdf')['status'] == 'incomplete'
-    assert remote_summary(b'example', 'https://example.com/f.pdf', 'text/html')['status'] == 'incomplete'
+    assert remote_summary(b'<html>Fake login</html>', 'https://example.com/f.pdf', 'application/pdf')['status'] == 'not_file'
+    assert remote_summary(b'example', 'https://example.com/f.pdf', 'text/html')['status'] == 'not_file'
 
 
 def test_password_form_to_external_domain_alerts():
@@ -79,7 +79,7 @@ def test_office_pdf_zip_additional_static_signals():
 
 def test_six_features_appear_in_web_interface():
     with TestClient(app) as client:
-        assert client.get('/health').json()['version'] == '1.3.1'
+        assert client.get('/health').json()['version'] == '1.3.2'
         html = client.get('/').text
     for marker in ['download-opt', 'download-inspection', 'redirect-chain', 'print-report', 'inspect-page-opt', 'own-analysis']:
         assert marker in html
