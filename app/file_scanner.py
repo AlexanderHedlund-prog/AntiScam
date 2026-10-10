@@ -22,7 +22,6 @@ import httpx
 from app.reputation_quota import take_virustotal_slot
 from app.quick_verdict import build_quick_verdict
 from app.local_malware import inspect_malware_indicators
-from app.clamav_engine import scan_clamav
 from app.vt_file_submission import submit_unknown_file, uploads_enabled
 
 MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -288,10 +287,10 @@ async def virustotal_hash_lookup(digest: str, consent: bool) -> dict[str, Any]:
 
 
 async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit_to_vt: bool = False) -> dict[str, Any]:
-    """Run built-in static indicator checks; optionally query VT and local clamd.
+    """Run bounded static checks and optionally query VirusTotal.
 
-    A clean static scan is never proof of safety. ClamAV requires a separately
-    configured, locally trusted daemon and does not run on Render Free by default.
+    Static heuristics and reputation data can miss new threats; neither means
+    that a file is guaranteed safe.
     """
     # CPU-heavy static analysis is offloaded so one archive cannot block the event loop.
     report, own = await asyncio.gather(
@@ -300,10 +299,7 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
     )
     # The local checks run on every uploaded file. No external upload.
     # Only the file's digest goes to VT after the user explicitly opts in.
-    reputation, clamav = await asyncio.gather(
-        virustotal_hash_lookup(report['sha256'], consent),
-        scan_clamav(data),
-    )
+    reputation = await virustotal_hash_lookup(report['sha256'], consent)
     if submit_to_vt and consent and reputation.get('status') == 'no_data' and 'В базе нет отчёта' in reputation.get('message', ''):
         reputation = await submit_unknown_file(data, report['sha256'], report['filename'])
     signals = list(report['signals'])
@@ -313,15 +309,13 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
     for finding in own['findings']:
         severity = 'medium' if finding['severity'] == 'test' else finding['severity']
         signals.append(_signal(severity, finding['text'] + (' (' + finding['location'] + ')' if finding['location'] else '')))
-    # A positive ClamAV result is a known signature finding. A test string
-    # from our own analyzer is NOT a real infection.
-    clamd_detected = clamav.get('status') == 'checked' and clamav.get('detections', 0) > 0
+    # EICAR and local heuristics are not genuine infection detections.
     vt_detected = reputation.get('status') == 'checked' and reputation.get('detections', 0) >= 2
-    if clamd_detected or vt_detected:
-        risk, title, detail = 'danger', 'Обнаружена известная сигнатура угрозы', 'Антивирусный движок или база репутации обнаружили угрозу. Не открывайте файл.'
-    elif signals or reputation.get('detections', 0) or reputation.get('suspicious', 0) or clamav.get('test_signatures', 0):
+    if vt_detected:
+        risk, title, detail = 'danger', 'Обнаружена известная сигнатура угрозы', 'Антивирусы в отчёте VirusTotal обнаружили угрозу. Не открывайте файл.'
+    elif signals or reputation.get('detections', 0) or reputation.get('suspicious', 0):
         risk, title, detail = 'caution', 'Есть повод насторожиться', 'Обнаружены подозрительные признаки или доступен только частичный анализ. Это не доказывает наличие вируса.'
-    elif clamav.get('status') == 'checked' or reputation.get('status') == 'checked':
+    elif reputation.get('status') == 'checked':
         risk, title, detail = 'low', 'Известных угроз не найдено', 'По выполненным антивирусным или репутационным проверкам угроз не обнаружено. Это не означает, что файл гарантированно безопасен.'
     elif reputation.get('status') == 'pending':
         risk, title, detail = 'unknown', 'Ожидаем результаты VirusTotal', 'Собственный анализ выполнен. Файл принят на новое сканирование, но антивирусный отчёт пока не готов.'
@@ -342,11 +336,10 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
     report['checks'] = [
         {'label': 'Формат и расширение', 'result': 'Проверены без запуска файла', 'status': 'checked'},
         {'label': 'Макросы, вложения, подозрительный код', 'result': f'Собственный анализ: {own["inspected_members"]} вложенных элементов. Это не антивирус.', 'status': 'partial' if inspection_partial else 'checked'},
-        {'label': 'Антивирусные сигнатуры ClamAV', 'result': clamav.get('message', 'Недоступно'), 'status': clamav.get('status', 'skipped')},
         {'label': 'База VirusTotal (SHA-256)', 'result': reputation.get('message', 'Нет отчёта'), 'status': reputation.get('status', 'no_data')},
     ]
     quick_verdict = build_quick_verdict(risk, kind='file')
-    if reputation.get('status') == 'pending' and not signals and not clamd_detected:
+    if reputation.get('status') == 'pending' and not signals :
         quick_verdict = {'state': 'unknown', 'answer': 'Антивирусная проверка ещё идёт',
                          'note': 'AntiScam уже проверил признаки риска. VirusTotal ещё готовит отчёт — нажмите «Узнать результат» позже.'}
     elif risk == 'unknown':
@@ -358,8 +351,6 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
                        else 'Готового отчёта VirusTotal нет' if reputation.get('status') == 'no_data'
                        else 'VirusTotal не запускался' if reputation.get('status') == 'skipped'
                        else 'Ошибка проверки VirusTotal')
-    if clamav.get('status') == 'checked':
-        antivirus_stage += ' · ClamAV дал ответ'
     summary_steps = {
         'local': 'Готово: формат, структура и подозрительные признаки исследованы без запуска файла.',
         'antivirus': antivirus_stage,
@@ -367,12 +358,12 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
                     else ('Можно запросить новое сканирование по отдельному согласию.' if uploads_enabled() else 'Новое сканирование выключено владельцем сайта; готового отчёта нет.') if reputation.get('status') == 'no_data'
                     else 'Отсутствие обнаружений не гарантирует безопасность.'),
     }
-    if (own['test_signatures'] or clamav.get('test_signatures')) and risk != 'danger':
+    if own['test_signatures'] and risk != 'danger':
         quick_verdict['note'] = 'Найдена безвредная тестовая сигнатура EICAR. Это не настоящий вирус. Полная антивирусная проверка может быть недоступна.'
     return {**report, 'signals': signals, 'inspection_coverage': coverage, 'own_malware_scan': own,
             'risk': risk, 'title': title, 'detail': detail,
             'quick_verdict': quick_verdict,
             'vt_analysis_token': reputation.get('analysis_token'),
             'scan_progress': summary_steps,
-            'providers': [reputation, own, clamav],
-            'disclaimer': 'Собственный статический анализ не запускает файл. ClamAV работает только при отдельном подключении. Обычный запрос VirusTotal передаёт лишь SHA-256. При отдельном согласии на новое сканирование содержимое файла передаётся VirusTotal и может стать доступным его сообществу. Ни одна система не гарантирует отсутствия вирусов.'}
+            'providers': [reputation, own],
+            'disclaimer': 'Собственный анализ не запускает файл. Поиск отчёта VirusTotal передаёт только SHA-256. С отдельного согласия на новое сканирование файл целиком передаётся VirusTotal и может стать доступным его сообществу. Ни одна проверка не гарантирует отсутствие вирусов.'}

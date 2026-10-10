@@ -92,20 +92,25 @@ function signalRow(container, signal) {
 
 function drawReport(data, ids) {
   const risk = ['low', 'caution', 'danger', 'unknown'].includes(data.risk) ? data.risk : 'unknown';
-  $(ids.banner).className = 'risk-banner ' + risk;
-  setText(ids.symbol, ({low:'✓', caution:'!', danger:'×', unknown:'?'})[risk]);
-  setText(ids.title, data.title);
-  setText(ids.detail, data.detail);
+  if (ids.banner) {
+    $(ids.banner).className = 'risk-banner ' + risk;
+    setText(ids.symbol, ({low:'✓', caution:'!', danger:'×', unknown:'?'})[risk]);
+    setText(ids.title, data.title);
+    setText(ids.detail, data.detail);
+  }
   const providers = $(ids.providers); providers.replaceChildren();
-  for (const provider of data.providers || []) providerRow(providers, provider);
+  for (const provider of data.providers || []) {
+    if (ids.result === 'file-result' && provider.name?.includes('Собственный')) continue;
+    providerRow(providers, provider);
+  }
   const signals = $(ids.signals); signals.replaceChildren();
-  if (!data.signals || data.signals.length === 0) {
+  if ((!data.signals || data.signals.length === 0) && ids.result !== 'file-result') {
     const node = document.createElement('div'); node.className = 'signal passive';
     const dot = document.createElement('span'); dot.className = 'signal-dot'; dot.textContent = '✓';
     const description = document.createElement('span'); description.textContent = 'Явных признаков риска в доступных данных не выявлено. Это не доказывает безопасность.';
     node.append(dot, description); signals.append(node);
   } else {
-    for (const signal of data.signals) signalRow(signals, signal);
+    for (const signal of data.signals || []) signalRow(signals, signal);
   }
   setText(ids.disclaimer, data.disclaimer);
   $(ids.result).classList.remove('hidden');
@@ -259,11 +264,15 @@ function drawVTProgress(data) {
 }
 
 function redrawFileReport(data) {
+  const fileReportWasVisible = !$('file-result').classList.contains('hidden');
   clearVtAutoCheck();
   const stages = data.scan_progress || {};
   setText('file-local-stage', stages.local || 'Собственный анализ завершён.');
   setText('file-antivirus-stage', stages.antivirus || 'Статус неизвестен');
-  setText('file-stage-explanation', stages.message || 'Результат требует осторожной интерпретации.');
+  setText('file-stage-explanation', data.providers?.[0]?.status === 'no_data' || data.providers?.[0]?.status === 'pending' || data.providers?.[0]?.status === 'error' ? (stages.message || '') : '');
+  const vtStatus = data.providers?.[0]?.status;
+  $('file-vt-indicator').className = 'compact-status-icon ' + (vtStatus === 'checked' ? 'success' : vtStatus === 'pending' ? 'waiting' : 'neutral');
+  setText('file-vt-indicator', vtStatus === 'checked' ? '✓' : vtStatus === 'pending' ? '…' : '?');
   setText('file-name', data.filename);
   setText('file-size', readableSize(data.size));
   setText('file-content', data.content.label);
@@ -271,7 +280,7 @@ function redrawFileReport(data) {
   setText('file-sha', data.sha256);
   const coverage = data.inspection_coverage || {};
   const coverageBox = $('file-coverage');
-  coverageBox.className = 'coverage-notice ' + (coverage.status === 'partial' ? 'partial' : 'bounded');
+  coverageBox.className = 'coverage-notice compact-coverage ' + (coverage.status === 'partial' ? 'partial' : 'hidden');
   setText('file-coverage-title', coverage.title || 'Объём проверки не определён');
   setText('file-coverage-text', coverage.explanation || 'Неизвестно, какие части файла удалось проверить.');
   $('file-coverage-limits').replaceChildren();
@@ -281,7 +290,9 @@ function redrawFileReport(data) {
   drawFileDetails(data);
   drawQuickVerdict(data, 'file');
   drawVTProgress(data);
-  drawReport(data, {banner:'file-risk-banner', symbol:'file-risk-symbol', title:'file-risk-title', detail:'file-risk-text', providers:'file-providers', signals:'file-signals', disclaimer:'file-disclaimer', result:'file-result'});
+  drawReport(data, {providers:'file-providers', signals:'file-signals', disclaimer:'file-disclaimer', result:'file-result'});
+  $('file-important-signals').classList.toggle('hidden', !(data.signals || []).length);
+  if (!fileReportWasVisible) $('file-advanced').open = false;
 }
 
 async function checkNewVTReport() {
@@ -304,8 +315,8 @@ async function checkNewVTReport() {
       lastFileReport.scan_progress.antivirus = 'Новый отчёт VirusTotal не получен';
       lastFileReport.scan_progress.message = latest.message || 'Повторите попытку позже.';
     }
-    lastFileReport.checks[3].result = latest.message;
-    lastFileReport.checks[3].status = latest.status;
+    const vtCheck = (lastFileReport.checks || []).find(check => check.label?.includes('VirusTotal'));
+    if (vtCheck) { vtCheck.result = latest.message; vtCheck.status = latest.status; }
     lastFileReport.vt_analysis_token = latest.analysis_token || null;
     if (latest.status === 'checked') {
       if ((latest.detections || 0) >= 2) {

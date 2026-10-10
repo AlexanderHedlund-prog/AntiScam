@@ -18,7 +18,6 @@ def reset(monkeypatch):
     vt._SESSIONS.clear()
     monkeypatch.delenv('VT_FILE_UPLOAD_ENABLED', raising=False)
     monkeypatch.delenv('VIRUSTOTAL_API_KEY', raising=False)
-    monkeypatch.delenv('CLAMD_SOCKET_PATH', raising=False)
 
 
 def test_upload_default_off_and_only_hash_uses_existing_path():

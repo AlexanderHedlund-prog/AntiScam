@@ -11,7 +11,7 @@ def _check(monkeypatch, status, body, expected_reason):
         assert req.method == 'GET'
         assert req.url.path == '/v5/urls:search'
         assert req.url.params.get('urls') == 'https://example.com/'
-        assert req.url.params.get('alt') == 'json'
+        assert 'alt' not in req.url.params
         return httpx.Response(status_code=status, json=body) if isinstance(body, dict) else httpx.Response(status_code=status, content=body)
     def factory(*args, **kwargs):
         return original(*args, transport=httpx.MockTransport(handle), **kwargs)

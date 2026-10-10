@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#302a25">
-  <meta name="description" content="AntiScam — проверьте подозрительную ссылку или файл. Узнайте формат, признаки риска и результаты доступных баз угроз.">
+  <meta name="description" content="AntiScam — проверка подозрительных ссылок и файлов на известные угрозы и признаки риска.">
   <title>AntiScam — проверка ссылок и файлов</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/styles.css">
@@ -41,7 +41,7 @@
           </div>
 
           <section id="link-panel" role="tabpanel" aria-labelledby="tab-link" class="tool-panel">
-            <div class="panel-heading"><div><p class="eyebrow">ПРОВЕРКА № 1</p><h2>Проверка ссылки</h2><p>Вставь адрес из сообщения, письма или соцсети.</p></div><span class="panel-symbol" aria-hidden="true">↗</span></div>
+            <div class="panel-heading"><div><p class="eyebrow">ССЫЛКИ</p><h2>Проверка ссылки</h2><p>Вставь адрес из сообщения, письма или соцсети.</p></div><span class="panel-symbol" aria-hidden="true">↗</span></div>
             <form id="check-form" novalidate>
               <label class="field-label" for="url-input">Подозрительная ссылка</label>
               <input id="url-input" name="url" type="url" maxlength="2048" required inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://example.com/document.pdf">
@@ -80,50 +80,67 @@
           </section>
 
           <section id="file-panel" role="tabpanel" aria-labelledby="tab-file" class="tool-panel hidden">
-            <div class="panel-heading"><div><p class="eyebrow">ПРОВЕРКА № 2</p><h2>Проверка файла</h2><p>Загрузи полученный файл — не открывай его на устройстве.</p></div><span class="panel-symbol" aria-hidden="true">▣</span></div>
+            <div class="panel-heading"><div><p class="eyebrow">ФАЙЛЫ</p><h2>Проверка файла</h2><p>Загрузи полученный файл — не открывай его на устройстве.</p></div><span class="panel-symbol" aria-hidden="true">▣</span></div>
             <form id="file-form" novalidate>
               <div class="dropzone" id="dropzone"><span class="drop-icon" aria-hidden="true">⇧</span><h3>Выбери файл для проверки</h3><p>Или перетащи его сюда с компьютера</p><button type="button" class="choose-btn" id="pick-file">Выбрать файл</button><input class="visually-hidden" type="file" id="file-input" aria-label="Файл для проверки"><div id="selected-file" class="selected-file hidden" aria-live="polite"></div></div>
               <p class="file-guidance">PDF, PPTX, DOCX, ZIP, изображения и другие файлы · до 8 МБ</p>
               <label class="option file-option"><input type="checkbox" id="file-share-opt"><span>Искать известные угрозы по SHA-256 в VirusTotal</span></label>
-              <p class="option-note">При обычном поиске отчёта в VirusTotal отправляется только SHA-256. Отдельная опция для нового анализа, если включена владельцем, передаёт сам файл. Не загружай конфиденциальные файлы: при поиске их хеш может стать известен внешнему сервису. Требуется подключённый API-ключ. Совпадение хеша с известным образцом позволяет получить имеющийся отчёт.</p>
+              <p class="option-note">Передаётся только цифровой отпечаток файла, не содержимое.</p>
               <div id="vt-upload-controls" class="vt-upload-controls hidden">
                 <label class="option file-option"><input type="checkbox" id="file-vt-upload-opt"><span>Если готового отчёта нет — запросить новое сканирование моего файла</span></label>
-                <p class="vt-privacy-warning"><strong>Публичная передача файла:</strong> при отдельном подтверждении AntiScam отправит файл целиком в VirusTotal. Компания и участники её сообщества могут получать доступ к образцу. Не используйте эту опцию для личных, учебных с персональными данными или конфиденциальных документов.</p>
+                <p class="vt-privacy-warning"><strong>Внимание:</strong> файл целиком уйдёт в VirusTotal и может стать доступен его сообществу. Не отправляйте личные и конфиденциальные документы.</p>
                 <div class="option file-option vt-consent"><input type="checkbox" id="file-vt-consent-opt"><label for="file-vt-consent-opt"><strong>Я прочитал(а) соглашение и разрешаю публичную отправку выбранного файла в VirusTotal.</strong></label></div>
-                <p class="option-note"><a href="/agreement" data-route="agreement" class="inline-link">Прочитать полное соглашение</a> перед подтверждением.</p>
-                <p class="option-note">Согласие требуется только для отправки целого файла. Без этой галочки запрос нового сканирования не выполняется. Оно не требуется для местного анализа или проверки хеша.</p>
+                <p class="option-note"><a href="/agreement" data-route="agreement" class="inline-link">Полные условия передачи данных →</a></p>
               </div>
-              <details class="agreement-preview"><summary>Соглашение об анализе файлов и конфиденциальности</summary><p>AntiScam сначала анализирует файл на своём сервере. При выборе проверки SHA-256 в VirusTotal передаётся отпечаток файла, а не его содержимое. При отдельном согласии на новое сканирование файл целиком передаётся в VirusTotal и может стать доступен другим участникам сообщества. Не отправляйте секретные и личные файлы. Ни одна проверка не гарантирует 100% безопасности.</p><a href="/agreement" data-route="agreement" class="inline-link">Полные условия проверки и обработки данных →</a></details>
-              <p id="vt-upload-disabled-note" class="option-note">Новая отправка файлов в VirusTotal сейчас отключена владельцем AntiScam. Поиск готового отчёта по SHA-256 остаётся доступным.</p>
+              <p id="vt-upload-disabled-note" class="option-note">Новое сканирование временно недоступно. Поиск по SHA-256 работает.</p>
               <button id="file-submit-btn" type="submit" class="action-btn"><span id="file-submit-text">Проверить файл</span><span aria-hidden="true">→</span></button>
-              <p class="microcopy">AntiScam не запускает файл и не хранит его постоянно. При отдельном согласии на новое сканирование файл может быть передан в VirusTotal; без этого передаётся только SHA-256. При загрузке сервер может временно буферизовать данные. Наш статический анализ работает всегда; ClamAV включается только при отдельно настроенном антивирусном сервере. Отсутствие находок не подтверждает безопасность.</p>
+              <p class="microcopy">Файлы не запускаются. Ни одна проверка не гарантирует отсутствие вирусов.</p>
             </form>
             <div id="file-error" class="message error hidden" role="alert"></div>
-            <section id="file-result" class="result-card hidden" aria-live="polite" aria-label="Результат проверки файла">
-              <div id="file-quick-verdict" class="quick-verdict unknown" aria-label="Краткий ответ о вирусах в файле">
-                <p class="quick-verdict-kicker">КОРОТКИЙ ОТВЕТ · ЕСТЬ ЛИ ВИРУС?</p>
+            <section id="file-result" class="result-card file-result-compact hidden" aria-live="polite" aria-label="Результат проверки файла">
+              <div id="file-quick-verdict" class="quick-verdict unknown" aria-label="Основной результат">
+                <p class="quick-verdict-kicker">РЕЗУЛЬТАТ ПРОВЕРКИ</p>
                 <h3 id="file-quick-answer"></h3><p id="file-quick-note"></p>
               </div>
-              <div class="scan-progress-header" aria-label="Этапы проверки файла"><div><strong>Собственный анализ</strong><p id="file-local-stage">Ожидание</p></div><div><strong>Антивирусная проверка</strong><p id="file-antivirus-stage">Ожидание</p></div><p id="file-stage-explanation" class="stage-explanation"></p></div>
-              <div id="file-risk-banner" class="risk-banner unknown"><span class="risk-symbol" id="file-risk-symbol">?</span><div><span class="result-kicker">ПОДРОБНЫЙ РЕЗУЛЬТАТ</span><h3 id="file-risk-title"></h3><p id="file-risk-text"></p></div></div>
-              <div class="result-body"><p class="result-label">ИМЯ ФАЙЛА</p><p id="file-name" class="value-break"></p>
-                <div class="result-two"><div class="result-tile"><p class="result-label">ТИП СОДЕРЖИМОГО</p><h4 id="file-content"></h4><p id="file-basis"></p></div><div class="result-tile"><p class="result-label">РАЗМЕР</p><h4 id="file-size"></h4><p>Файл прочитан без выполнения его содержимого.</p></div></div>
-                <p class="result-label hash-heading">SHA-256</p><p id="file-sha" class="hash"></p>
-                <section id="file-coverage" class="coverage-notice" aria-live="polite"><strong id="file-coverage-title"></strong><p id="file-coverage-text"></p><ul id="file-coverage-limits"></ul></section>
-                <h4 class="list-heading">Что проверил AntiScam</h4><div id="file-checks" class="rows"></div>
-                <section id="archive-info" class="archive-info hidden" aria-label="Содержимое архива"><div class="archive-heading"><h4 class="list-heading">Что внутри файла</h4><span id="archive-count" class="count-pill"></span></div><p id="archive-note" class="archive-note"></p><div id="archive-items" class="archive-items"></div></section>
-                <h4 class="list-heading">Собственная проверка и антивирусные системы</h4><div id="file-providers" class="rows"></div>
-                <section id="vt-scan-progress" class="vt-scan-progress hidden" aria-live="polite"><h4>Новое сканирование VirusTotal</h4><p id="vt-scan-progress-note"></p><button type="button" class="choose-btn" id="vt-status-btn">Узнать результат</button></section>
-                <h4 class="list-heading">Замеченные признаки</h4><div id="file-signals" class="rows"></div>
-                <p id="file-disclaimer" class="disclaimer"></p>
+              <div class="compact-file-body">
+                <div class="compact-file-meta">
+                  <strong id="file-name" class="value-break"></strong>
+                  <p><span id="file-content"></span> <span aria-hidden="true">·</span> <span id="file-size"></span></p>
+                </div>
+                <div class="compact-statuses" aria-label="Результаты этапов проверки">
+                  <div><span class="compact-status-icon" aria-hidden="true">✓</span><div><strong>AntiScam</strong><p id="file-local-stage">Собственный анализ</p></div></div>
+                  <div><span id="file-vt-indicator" class="compact-status-icon neutral" aria-hidden="true">?</span><div><strong>VirusTotal</strong><p id="file-antivirus-stage">Статус отчёта</p></div></div>
+                </div>
+                <p id="file-stage-explanation" class="compact-stage-note"></p>
+                <section id="vt-scan-progress" class="vt-scan-progress hidden" aria-live="polite">
+                  <h4>VirusTotal проверяет файл</h4>
+                  <p id="vt-scan-progress-note"></p>
+                  <button type="button" class="choose-btn" id="vt-status-btn">Узнать результат</button>
+                </section>
+                <section id="file-important-signals" class="compact-alerts hidden" aria-label="Предупреждения">
+                  <h4>На что обратить внимание</h4><div id="file-signals" class="rows"></div>
+                </section>
+                <div id="file-coverage" class="coverage-notice compact-coverage hidden" aria-live="polite">
+                  <strong id="file-coverage-title"></strong><p id="file-coverage-text"></p>
+                </div>
+                <details id="file-advanced" class="result-details">
+                  <summary>Подробности проверки <span aria-hidden="true">⌄</span></summary>
+                  <div class="details-inner">
+                    <p class="result-label">О ФАЙЛЕ</p><p id="file-basis" class="details-muted"></p>
+                    <p class="result-label hash-heading">SHA-256</p><p id="file-sha" class="hash"></p>
+                    <h4 class="list-heading">Какие проверки выполнены</h4><div id="file-checks" class="rows"></div>
+                    <section id="archive-info" class="archive-info hidden" aria-label="Содержимое файла"><div class="archive-heading"><h4 class="list-heading">Содержимое файла</h4><span id="archive-count" class="count-pill"></span></div><p id="archive-note" class="archive-note"></p><div id="archive-items" class="archive-items"></div></section>
+                    <h4 class="list-heading">Ответ систем проверки</h4><div id="file-providers" class="rows"></div>
+                    <ul id="file-coverage-limits" class="details-limitations"></ul>
+                    <p id="file-disclaimer" class="disclaimer"></p>
+                  </div>
+                </details>
               </div>
             </section>
           </section>
         </div>
         <p class="under-tool">🛡️ <strong>Честная проверка.</strong> Если информации мало, мы так и сообщим. Отсутствие обнаружений не означает, что файл безопасен.</p>
       </section>
-
-      <section class="process-section wrap" id="how"><p class="section-label">БЕЗ ЛИШНИХ СЛОЖНОСТЕЙ</p><h2>Как это работает</h2><div class="process-grid"><article class="process-card"><span class="step-count">Этап 1</span><h3>Выбери проверку</h3><p>Нажми «Проверить ссылку» или перейди во вкладку «Проверить файл».</p></article><article class="process-card"><span class="step-count">Этап 2</span><h3>Добавь объект</h3><p>Вставь адрес или загрузи файл до 8 МБ. Ничего запускать не нужно.</p></article><article class="process-card"><span class="step-count">Этап 3</span><h3>Прочитай результат</h3><p>Сравни уровень риска, формат и замеченные признаки перед принятием решения.</p></article></div></section>
     </div>
 
     <section id="agreement-page" class="about-page wrap hidden" aria-labelledby="agreement-heading">

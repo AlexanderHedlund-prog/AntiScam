@@ -111,7 +111,7 @@ def test_no_false_green_without_external_report():
 
 def test_api_renders_new_ui_and_metadata():
     with TestClient(app) as c:
-        assert c.get('/health').json()['version'] == '1.1.0'
+        assert c.get('/health').json()['version'] == '1.2.0'
         page = c.get('/file')
         assert page.status_code == 200
         assert 'file-checks' in page.text
@@ -120,7 +120,7 @@ def test_api_renders_new_ui_and_metadata():
     assert response.status_code == 200
     body = response.json()
     assert body['archive']['count'] == 1
-    assert len(body['checks']) == 4
+    assert len(body['checks']) == 3
 
 
 def test_file_preview_not_unsafe_html():

@@ -20,7 +20,8 @@ def _run_case(monkeypatch, status, body, expected):
     assert expected in result['message']
     assert 'hidden-test-key' not in str(result)
     assert '/v5/urls:search' in seen['path']
-    assert 'alt=json' in seen['query']
+    assert 'alt=' not in seen['query']
+    assert 'urls=' in seen['query']
     return result
 
 
@@ -35,7 +36,7 @@ def test_google_403_diagnostic(monkeypatch):
 
 
 def test_google_200_non_json(monkeypatch):
-    result = _run_case(monkeypatch, 200, b'\x00\xffnot-json', 'не в формате JSON')
+    result = _run_case(monkeypatch, 200, b'\x00\xffnot-json', 'неожиданный формат ответа')
     assert result['status'] == 'error'
 
 

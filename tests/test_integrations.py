@@ -46,6 +46,7 @@ def test_google_v5_no_threat_and_cache(monkeypatch):
     assert r2 == r1 and len(calls) == 1
     assert calls[0][0] == 'https://safebrowsing.googleapis.com/v5/urls:search'
     assert calls[0][1]['params']['urls'] == 'https://example.com/a?token=a'
+    assert 'alt' not in calls[0][1]['params']
     assert 'private-test-key' not in str(scanner._GOOGLE_CACHE)
     assert 'token=a' not in str(scanner._GOOGLE_CACHE)
 
