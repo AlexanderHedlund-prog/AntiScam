@@ -2,14 +2,16 @@
 const $ = (id) => document.getElementById(id);
 const setText = (id, value) => { $(id).textContent = String(value ?? ''); };
 const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const ROUTE = {link: '/', file: '/file', about: '/about'};
-const modeForPath = () => location.pathname === '/file' ? 'file' : location.pathname === '/about' ? 'about' : 'link';
+const ROUTE = {link: '/', file: '/file', about: '/about', agreement: '/agreement'};
+const modeForPath = () => location.pathname === '/file' ? 'file' : location.pathname === '/about' ? 'about' : location.pathname === '/agreement' ? 'agreement' : 'link';
 
 function navigate(mode, push = false) {
   if (!(mode in ROUTE)) mode = 'link';
   const info = mode === 'about';
-  $('scan-pages').classList.toggle('hidden', info);
+  const agreement = mode === 'agreement';
+  $('scan-pages').classList.toggle('hidden', info || agreement);
   $('about-page').classList.toggle('hidden', !info);
+  $('agreement-page').classList.toggle('hidden', !agreement);
   $('link-panel').classList.toggle('hidden', mode !== 'link');
   $('file-panel').classList.toggle('hidden', mode !== 'file');
   for (const tab of ['link', 'file']) {
@@ -196,6 +198,8 @@ $('check-form').addEventListener('submit', async (event) => {
 
 let selectedFile = null;
 let lastFileReport = null;
+let vtAutoCheckTimer = null;
+function clearVtAutoCheck() { if (vtAutoCheckTimer) window.clearTimeout(vtAutoCheckTimer); vtAutoCheckTimer = null; }
 // The server owns the opt-in upload policy; do not enable a risky action until confirmed.
 async function loadFileUploadCapability() {
   try {
@@ -204,24 +208,29 @@ async function loadFileUploadCapability() {
     $('vt-upload-controls').classList.toggle('hidden', !active);
     $('vt-upload-disabled-note').classList.toggle('hidden', active);
     $('file-vt-upload-opt').disabled = !active;
+    if (!active) { $('file-vt-upload-opt').checked = false; $('file-vt-consent-opt').checked = false; }
   } catch (_) {
     $('vt-upload-controls').classList.add('hidden');
     $('vt-upload-disabled-note').classList.remove('hidden');
     $('file-vt-upload-opt').disabled = true;
+    $('file-vt-upload-opt').checked = false; $('file-vt-consent-opt').checked = false;
   }
 }
 loadFileUploadCapability();
 $('file-vt-upload-opt').addEventListener('change', () => {
   if ($('file-vt-upload-opt').checked) $('file-share-opt').checked = true;
+  else $('file-vt-consent-opt').checked = false;
 });
 $('file-share-opt').addEventListener('change', () => {
-  if (!$('file-share-opt').checked) $('file-vt-upload-opt').checked = false;
+  if (!$('file-share-opt').checked) { $('file-vt-upload-opt').checked = false; $('file-vt-consent-opt').checked = false; }
 });
 const MAX_SIZE = 8 * 1024 * 1024;
 const readableSize = (n) => n < 1024 ? n + ' Б' : n < 1024*1024 ? (n / 1024).toFixed(1) + ' КБ' : (n / (1024*1024)).toFixed(2) + ' МБ';
 function chooseFile(file) {
   $('file-error').classList.add('hidden'); $('file-result').classList.add('hidden');
-  lastFileReport = null;
+  lastFileReport = null; clearVtAutoCheck();
+  $('file-vt-upload-opt').checked = false;
+  $('file-vt-consent-opt').checked = false;
   selectedFile = file || null;
   const summary = $('selected-file');
   summary.classList.toggle('hidden', !selectedFile);
@@ -250,18 +259,32 @@ function drawVTProgress(data) {
 }
 
 function redrawFileReport(data) {
+  clearVtAutoCheck();
+  const stages = data.scan_progress || {};
+  setText('file-local-stage', stages.local || 'Собственный анализ завершён.');
+  setText('file-antivirus-stage', stages.antivirus || 'Статус неизвестен');
+  setText('file-stage-explanation', stages.message || 'Результат требует осторожной интерпретации.');
   setText('file-name', data.filename);
   setText('file-size', readableSize(data.size));
   setText('file-content', data.content.label);
   setText('file-basis', data.content.basis);
   setText('file-sha', data.sha256);
+  const coverage = data.inspection_coverage || {};
+  const coverageBox = $('file-coverage');
+  coverageBox.className = 'coverage-notice ' + (coverage.status === 'partial' ? 'partial' : 'bounded');
+  setText('file-coverage-title', coverage.title || 'Объём проверки не определён');
+  setText('file-coverage-text', coverage.explanation || 'Неизвестно, какие части файла удалось проверить.');
+  $('file-coverage-limits').replaceChildren();
+  for (const limitation of coverage.limitations || []) {
+    const li = document.createElement('li'); li.textContent = limitation; $('file-coverage-limits').append(li);
+  }
   drawFileDetails(data);
   drawQuickVerdict(data, 'file');
   drawVTProgress(data);
   drawReport(data, {banner:'file-risk-banner', symbol:'file-risk-symbol', title:'file-risk-title', detail:'file-risk-text', providers:'file-providers', signals:'file-signals', disclaimer:'file-disclaimer', result:'file-result'});
 }
 
-$('vt-status-btn').addEventListener('click', async () => {
+async function checkNewVTReport() {
   if (!lastFileReport?.vt_analysis_token) return;
   $('vt-status-btn').disabled = true;
   setText('vt-scan-progress-note', 'Запрашиваем результат VirusTotal…');
@@ -271,6 +294,16 @@ $('vt-status-btn').addEventListener('click', async () => {
       body: JSON.stringify({token: lastFileReport.vt_analysis_token})
     }, 20000);
     lastFileReport.providers[0] = latest;
+    if (latest.status === 'pending') {
+      lastFileReport.scan_progress.antivirus = 'Новое сканирование VirusTotal ещё выполняется';
+      lastFileReport.scan_progress.message = 'Попробуйте снова позднее. Лимиты VirusTotal ограничивают число запросов.';
+    } else if (latest.status === 'checked') {
+      lastFileReport.scan_progress.antivirus = 'Новый отчёт VirusTotal получен';
+      lastFileReport.scan_progress.message = 'Результат антивирусных движков получен; стопроцентной гарантии безопасности нет.';
+    } else {
+      lastFileReport.scan_progress.antivirus = 'Новый отчёт VirusTotal не получен';
+      lastFileReport.scan_progress.message = latest.message || 'Повторите попытку позже.';
+    }
     lastFileReport.checks[3].result = latest.message;
     lastFileReport.checks[3].status = latest.status;
     lastFileReport.vt_analysis_token = latest.analysis_token || null;
@@ -291,12 +324,16 @@ $('vt-status-btn').addEventListener('click', async () => {
         lastFileReport.quick_verdict = {state:'low', answer:'Известных угроз не обнаружено', note:'Результат проверки по доступным антивирусам; неизвестные угрозы могут остаться.'};
       }
     }
+    if (latest.status === 'checked' && (latest.detections || 0) === 0 && (latest.suspicious || 0) === 0 && lastFileReport.risk === 'unknown') {
+      lastFileReport.quick_verdict.note = 'Выполненные антивирусные проверки не выявили известных угроз, но это не гарантия безопасности.';
+    }
     redrawFileReport(lastFileReport);
   } catch (error) {
     setText('vt-scan-progress-note', 'Не удалось получить отчёт: ' + error.message);
     $('vt-status-btn').disabled = false;
   }
-});
+}
+$('vt-status-btn').addEventListener('click', checkNewVTReport);
 
 function drawFileDetails(data) {
   const checks = $('file-checks'); checks.replaceChildren();
@@ -330,15 +367,24 @@ $('file-form').addEventListener('submit', async (event) => {
   $('file-error').classList.add('hidden'); $('file-result').classList.add('hidden');
   if (!selectedFile) { displayError('file-error', 'Сначала выберите файл.'); $('pick-file').focus(); return; }
   if (!selectedFile.size || selectedFile.size > MAX_SIZE) { displayError('file-error', 'Поддерживаются непустые файлы до 8 МБ.'); return; }
+  if ($('file-vt-upload-opt').checked && !$('file-vt-consent-opt').checked) {
+    displayError('file-error', 'Для отправки целого файла в VirusTotal необходимо прочитать соглашение и поставить отдельную галочку согласия.');
+    $('file-vt-consent-opt').focus(); return;
+  }
   const form = new FormData();
   form.append('file', selectedFile, selectedFile.name);
   form.append('check_hash', String($('file-share-opt').checked));
   form.append('submit_to_vt', String($('file-vt-upload-opt').checked && !$('file-vt-upload-opt').disabled));
+  form.append('vt_public_consent', String($('file-vt-consent-opt').checked && $('file-vt-upload-opt').checked));
   $('file-submit-btn').disabled = true; setText('file-submit-text', 'Анализируем файл…');
   try {
     const data = await requestJSON('/api/scan-file', {method:'POST', body:form}, 50000);
     lastFileReport = data;
     redrawFileReport(data);
+    if (data.vt_analysis_token) {
+      // One delayed status check: avoid exhausting the free public VirusTotal quota.
+      vtAutoCheckTimer = window.setTimeout(() => { vtAutoCheckTimer = null; if (lastFileReport?.vt_analysis_token === data.vt_analysis_token) checkNewVTReport(); }, 45000);
+    }
   } catch (error) {
     displayError('file-error', error.name === 'AbortError' ? 'Превышено время ожидания. Попробуйте ещё раз.' : 'Не удалось проверить: ' + error.message);
   } finally { $('file-submit-btn').disabled = false; setText('file-submit-text', 'Проверить файл'); }

@@ -14,6 +14,7 @@ def reset(monkeypatch):
     _TRAFFIC.clear()
     vt._SUBMISSIONS.clear()
     vt._RECENT.clear()
+    vt._RECENT_TOKEN.clear()
     vt._SESSIONS.clear()
     monkeypatch.delenv('VT_FILE_UPLOAD_ENABLED', raising=False)
     monkeypatch.delenv('VIRUSTOTAL_API_KEY', raising=False)
@@ -24,7 +25,7 @@ def test_upload_default_off_and_only_hash_uses_existing_path():
     with TestClient(app) as c:
         d = c.get('/api/providers').json()
         assert d['virustotal']['new_file_upload_enabled'] is False
-        assert c.post('/api/scan-file', data={'check_hash': 'true', 'submit_to_vt': 'true'},
+        assert c.post('/api/scan-file', data={'check_hash': 'true', 'submit_to_vt': 'true', 'vt_public_consent': 'true'},
                       files={'file': ('test.txt', b'hello')}).status_code == 403
         report = c.post('/api/scan-file', files={'file': ('test.txt', b'hello')}).json()
     assert report['risk'] == 'unknown'
@@ -76,7 +77,7 @@ def test_full_submission_poll_and_external_detection(monkeypatch):
     monkeypatch.setattr(file_scanner, 'take_virustotal_slot', slot)
     monkeypatch.setattr(vt, 'take_virustotal_slot', slot)
     with TestClient(app) as c:
-        result = c.post('/api/scan-file', data={'check_hash': 'true', 'submit_to_vt': 'true'},
+        result = c.post('/api/scan-file', data={'check_hash': 'true', 'submit_to_vt': 'true', 'vt_public_consent': 'true'},
                         files={'file': ('private.name.pptx', b'hello file bytes')})
         assert result.status_code == 200
         data = result.json()
@@ -103,7 +104,7 @@ def test_no_upload_for_existing_vt_report(monkeypatch):
     async def slot(): return True
     monkeypatch.setattr(file_scanner, 'take_virustotal_slot', slot)
     with TestClient(app) as c:
-        data = c.post('/api/scan-file', data={'check_hash': 'true', 'submit_to_vt': 'true'},
+        data = c.post('/api/scan-file', data={'check_hash': 'true', 'submit_to_vt': 'true', 'vt_public_consent': 'true'},
                       files={'file': ('file.txt', b'example')}).json()
     assert data['providers'][0]['status'] == 'checked'
     assert data['vt_analysis_token'] is None
@@ -122,7 +123,7 @@ def test_process_local_daily_cap_rejects_more_submissions(monkeypatch):
     monkeypatch.setattr(vt, 'take_virustotal_slot', slot)
     monkeypatch.setattr(vt.httpx, 'AsyncClient', DummyVTClient)
     async def do():
-        return await asyncio.gather(*(vt.submit_unknown_file(f'data {i}'.encode(), f'{i:064x}', 'n.txt') for i in range(9)))
+        return await asyncio.gather(*(vt.submit_unknown_file(f'data {i}'.encode(), __import__('hashlib').sha256(f'data {i}'.encode()).hexdigest(), 'n.txt') for i in range(9)))
     results = asyncio.run(do())
     assert sum(result['status'] == 'pending' for result in results) == 8
     assert results[-1]['status'] == 'error'

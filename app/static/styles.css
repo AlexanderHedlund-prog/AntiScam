@@ -57,3 +57,27 @@
 .vt-privacy-warning{font-size:13px;line-height:1.65;color:#ffe6d3;margin:9px 0 0}
 .vt-scan-progress{margin-top:25px;padding:20px;border:1px solid rgba(255,255,255,.25);border-radius:17px;background:rgba(35,68,42,.3)}
 .vt-scan-progress h4{font-size:18px;margin:0 0 8px}.vt-scan-progress p{font-size:14px;line-height:1.6;margin:0 0 13px}
+
+/* v1.0: explicit limitations of file inspection */
+.coverage-notice{margin:20px 0 12px;padding:17px 19px;border-radius:16px;background:rgba(35,51,40,.3);border:1px solid rgba(184,230,189,.44)}
+.coverage-notice.partial{background:rgba(101,71,38,.42);border-color:rgba(244,191,104,.75)}
+.coverage-notice strong{font-size:16px;display:block}
+.coverage-notice p{font-size:14px;line-height:1.6;margin:7px 0 0}
+.coverage-notice ul{margin:8px 0 0;padding-left:22px;font-size:13px}
+
+/* v1.1: agreement and transparent file scan states */
+.agreement-preview{border:1px solid rgba(241,213,176,.50);border-radius:15px;background:rgba(18,19,16,.18);padding:15px 18px;margin:19px 0 10px;font-size:14px}
+.agreement-preview summary{cursor:pointer;font-weight:850;line-height:1.45}
+.agreement-preview p{line-height:1.65;margin:12px 0 9px}
+.inline-link{color:#ebffda;font-weight:750;text-decoration:underline;text-underline-offset:3px}
+.inline-link:hover{color:#fff}
+.vt-consent{padding-top:13px;border-top:1px solid rgba(255,255,255,.19);margin-top:14px!important}
+.vt-consent span{line-height:1.55}.vt-consent input{accent-color:#308a32}
+.scan-progress-header{padding:19px 24px;background:rgba(49,44,39,.97);display:grid;grid-template-columns:1fr 1fr;gap:15px;border-bottom:1px solid rgba(255,255,255,.16)}
+.scan-progress-header>div{background:rgba(255,255,255,.07);border-radius:13px;padding:13px 14px}
+.scan-progress-header strong{font-size:14px}.scan-progress-header p{font-size:13px;line-height:1.55;margin:6px 0 0}
+.scan-progress-header>.stage-explanation{grid-column:1/-1;margin:0;color:#fff1dd;font-size:13px}
+.agreement-document{background:rgba(154,134,113,.60);border-radius:24px;padding:clamp(22px,5vw,46px);max-width:900px;margin:0 auto}
+.agreement-document h2{font-size:23px;margin:25px 0 7px}.agreement-document h2:first-child{margin-top:0}
+.agreement-document p{font-size:16px;line-height:1.78;margin:0 0 10px}.agreement-endnote{margin-top:26px!important}
+@media(max-width:650px){.scan-progress-header{grid-template-columns:1fr;padding:15px}.scan-progress-header>.stage-explanation{grid-column:1}.agreement-document p{font-size:14px}.agreement-document h2{font-size:19px}}

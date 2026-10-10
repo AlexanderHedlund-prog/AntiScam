@@ -13,6 +13,7 @@ import os
 import re
 import stat
 import zipfile
+import unicodedata
 from pathlib import PurePath
 from typing import Any
 
@@ -22,7 +23,7 @@ from app.reputation_quota import take_virustotal_slot
 from app.quick_verdict import build_quick_verdict
 from app.local_malware import inspect_malware_indicators
 from app.clamav_engine import scan_clamav
-from app.vt_file_submission import submit_unknown_file
+from app.vt_file_submission import submit_unknown_file, uploads_enabled
 
 MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_MULTIPART_BYTES = MAX_FILE_BYTES + 1024 * 1024
@@ -39,7 +40,7 @@ FILES_INSIDE_RE = re.compile(r'\.(?:pdf|docx?|pptx?|xlsx?|jpg|png)\.(?:exe|scr|b
 def _safe_filename(name: str | None) -> str:
     # A filename is untrusted user input, even when sent by a browser.
     value = (name or 'без_названия').replace('\\', '/').split('/')[-1]
-    value = ''.join(ch for ch in value if ch.isprintable() and ord(ch) >= 32)
+    value = ''.join(ch for ch in value if ch.isprintable() and ord(ch) >= 32 and unicodedata.category(ch) != 'Cf')
     return (value.strip() or 'без_названия')[:130]
 
 
@@ -94,6 +95,11 @@ def _zip_summary(data: bytes, signals: list[dict[str, str]]) -> tuple[str, str, 
             infos = archive.infolist()
             result['count'] = len(infos)
             names = {info.filename.lower() for info in infos[:2000]}
+            if len(infos) > 2000:
+                signals.append(_signal('medium', 'Список вложений очень большой; часть метаданных проверена выборочно.'))
+            if len({info.filename.lower() for info in infos}) != len(infos):
+                # Duplicate names (including case-insensitive variants) can confuse extractors.
+                signals.append(_signal('medium', 'В ZIP есть повторяющиеся имена; разные программы могут открыть разные вложения.'))
             is_office = False
             if 'ppt/presentation.xml' in names:
                 label, kind, is_office = 'Презентация PowerPoint (PPTX)', 'presentation', True
@@ -184,10 +190,13 @@ def inspect_file(data: bytes, uploaded_name: str) -> dict[str, Any]:
     if len(data) > MAX_FILE_BYTES:
         raise ValueError('Файл слишком большой. Максимальный размер — 8 МБ.')
     name = _safe_filename(uploaded_name)
+    has_bidi = any(unicodedata.bidirectional(c) in {'RLO', 'LRO', 'RLE', 'LRE', 'PDF', 'RLI', 'LRI', 'FSI', 'PDI'} for c in (uploaded_name or ''))
     ext = PurePath(name.lower()).suffix.lower()
     label, kind = _magic(data)
     signals: list[dict[str, str]] = []
     archive: dict[str, Any] | None = None
+    if has_bidi:
+        signals.append(_signal('high', 'Имя файла содержит невидимые символы направления письма, которые могут скрывать расширение.'))
     if kind == 'zip':
         label, kind, archive = _zip_summary(data, signals)
     elif kind == 'archive':
@@ -269,6 +278,8 @@ async def virustotal_hash_lookup(digest: str, consent: bool) -> dict[str, Any]:
         malicious = max(0, int(stats.get('malicious', 0)))
         suspicious = max(0, int(stats.get('suspicious', 0)))
         total = sum(max(0, int(v)) for v in stats.values() if isinstance(v, int))
+        if total < 1:
+            return {'name': provider, 'status': 'no_data', 'message': 'В отчёте VirusTotal нет результатов антивирусных движков. Считать файл проверенным нельзя.'}
         return {'name': provider, 'status': 'checked', 'detections': malicious,
                 'suspicious': suspicious, 'total': total,
                 'message': f'Результаты имеющегося отчёта: {malicious} опасных, {suspicious} подозрительных из {total}. Это не сканирование загруженных байтов.'}
@@ -282,8 +293,11 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
     A clean static scan is never proof of safety. ClamAV requires a separately
     configured, locally trusted daemon and does not run on Render Free by default.
     """
-    report = inspect_file(data, uploaded_name)
-    own = inspect_malware_indicators(data, report['filename'])
+    # CPU-heavy static analysis is offloaded so one archive cannot block the event loop.
+    report, own = await asyncio.gather(
+        asyncio.to_thread(inspect_file, data, uploaded_name),
+        asyncio.to_thread(inspect_malware_indicators, data, uploaded_name),
+    )
     # The local checks run on every uploaded file. No external upload.
     # Only the file's digest goes to VT after the user explicitly opts in.
     reputation, clamav = await asyncio.gather(
@@ -293,6 +307,9 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
     if submit_to_vt and consent and reputation.get('status') == 'no_data' and 'В базе нет отчёта' in reputation.get('message', ''):
         reputation = await submit_unknown_file(data, report['sha256'], report['filename'])
     signals = list(report['signals'])
+    inspection_partial = bool(own['truncated']) or report['content']['label'] in {'RAR-архив', '7z-архив', 'GZIP-архив', 'Неизвестный бинарный формат', 'Документ Microsoft Office старого формата'}
+    if report['archive'] and any('зашифрованные элементы' in x['text'] or 'архивная бомба' in x['text'] or 'не может быть прочитан' in x['text'] for x in signals):
+        inspection_partial = True
     for finding in own['findings']:
         severity = 'medium' if finding['severity'] == 'test' else finding['severity']
         signals.append(_signal(severity, finding['text'] + (' (' + finding['location'] + ')' if finding['location'] else '')))
@@ -306,21 +323,56 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
         risk, title, detail = 'caution', 'Есть повод насторожиться', 'Обнаружены подозрительные признаки или доступен только частичный анализ. Это не доказывает наличие вируса.'
     elif clamav.get('status') == 'checked' or reputation.get('status') == 'checked':
         risk, title, detail = 'low', 'Известных угроз не найдено', 'По выполненным антивирусным или репутационным проверкам угроз не обнаружено. Это не означает, что файл гарантированно безопасен.'
+    elif reputation.get('status') == 'pending':
+        risk, title, detail = 'unknown', 'Ожидаем результаты VirusTotal', 'Собственный анализ выполнен. Файл принят на новое сканирование, но антивирусный отчёт пока не готов.'
     else:
         risk, title, detail = 'unknown', 'Безопасность не установлена', 'Собственный статический анализ выполнен, но полноценная антивирусная проверка недоступна или отчёт отсутствует.'
 
+    coverage = {
+        'status': 'partial' if inspection_partial else 'bounded',
+        'title': 'Часть содержимого недоступна' if inspection_partial else 'Выполнен ограниченный статический анализ',
+        'explanation': (
+            'Некоторые вложения не были прочитаны или формат не позволяет их раскрыть. Отсутствие находок не подтверждает безопасность.'
+            if inspection_partial else
+            'Проверены доступные признаки без запуска файлов. Это не полноценное антивирусное сканирование.'
+        ),
+        'inspected_members': own['inspected_members'],
+        'limitations': own.get('limitations', []),
+    }
     report['checks'] = [
         {'label': 'Формат и расширение', 'result': 'Проверены без запуска файла', 'status': 'checked'},
-        {'label': 'Макросы, вложения, подозрительный код', 'result': f'Собственный анализ: {own["inspected_members"]} вложенных элементов. Это не антивирус.', 'status': 'checked'},
+        {'label': 'Макросы, вложения, подозрительный код', 'result': f'Собственный анализ: {own["inspected_members"]} вложенных элементов. Это не антивирус.', 'status': 'partial' if inspection_partial else 'checked'},
         {'label': 'Антивирусные сигнатуры ClamAV', 'result': clamav.get('message', 'Недоступно'), 'status': clamav.get('status', 'skipped')},
         {'label': 'База VirusTotal (SHA-256)', 'result': reputation.get('message', 'Нет отчёта'), 'status': reputation.get('status', 'no_data')},
     ]
     quick_verdict = build_quick_verdict(risk, kind='file')
+    if reputation.get('status') == 'pending' and not signals and not clamd_detected:
+        quick_verdict = {'state': 'unknown', 'answer': 'Антивирусная проверка ещё идёт',
+                         'note': 'AntiScam уже проверил признаки риска. VirusTotal ещё готовит отчёт — нажмите «Узнать результат» позже.'}
+    elif risk == 'unknown':
+        quick_verdict['note'] = ('Файл исследован локально, но антивирус не дал заключения. '
+                                 + ('У VirusTotal нет готового отчёта для этого файла. ' if reputation.get('status') == 'no_data' else '')
+                                 + 'Это не поломка сканера и не означает, что вируса нет.')
+    antivirus_stage = ('Идёт новое сканирование VirusTotal' if reputation.get('status') == 'pending'
+                       else 'Готовый отчёт VirusTotal получен' if reputation.get('status') == 'checked'
+                       else 'Готового отчёта VirusTotal нет' if reputation.get('status') == 'no_data'
+                       else 'VirusTotal не запускался' if reputation.get('status') == 'skipped'
+                       else 'Ошибка проверки VirusTotal')
+    if clamav.get('status') == 'checked':
+        antivirus_stage += ' · ClamAV дал ответ'
+    summary_steps = {
+        'local': 'Готово: формат, структура и подозрительные признаки исследованы без запуска файла.',
+        'antivirus': antivirus_stage,
+        'message': ('Зайдите за результатом нового сканирования через 30–60 секунд.' if reputation.get('status') == 'pending'
+                    else ('Можно запросить новое сканирование по отдельному согласию.' if uploads_enabled() else 'Новое сканирование выключено владельцем сайта; готового отчёта нет.') if reputation.get('status') == 'no_data'
+                    else 'Отсутствие обнаружений не гарантирует безопасность.'),
+    }
     if (own['test_signatures'] or clamav.get('test_signatures')) and risk != 'danger':
         quick_verdict['note'] = 'Найдена безвредная тестовая сигнатура EICAR. Это не настоящий вирус. Полная антивирусная проверка может быть недоступна.'
-    return {**report, 'signals': signals, 'own_malware_scan': own,
+    return {**report, 'signals': signals, 'inspection_coverage': coverage, 'own_malware_scan': own,
             'risk': risk, 'title': title, 'detail': detail,
             'quick_verdict': quick_verdict,
             'vt_analysis_token': reputation.get('analysis_token'),
+            'scan_progress': summary_steps,
             'providers': [reputation, own, clamav],
             'disclaimer': 'Собственный статический анализ не запускает файл. ClamAV работает только при отдельном подключении. Обычный запрос VirusTotal передаёт лишь SHA-256. При отдельном согласии на новое сканирование содержимое файла передаётся VirusTotal и может стать доступным его сообществу. Ни одна система не гарантирует отсутствия вирусов.'}
