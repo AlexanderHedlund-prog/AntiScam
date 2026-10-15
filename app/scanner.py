@@ -518,11 +518,18 @@ async def analyse_url(raw: str, consent: bool, inspect_headers: bool, inspect_pa
     elif risk == 'unknown' and page.get('status') == 'ok':
         quick_verdict = {**quick_verdict,
                          'note': 'Просмотрен ограниченный ответ сайта, но без результатов внешних баз невозможно подтвердить отсутствие угроз.'}
+    action = (
+        'Не открывайте адрес и не вводите пароли. Если данные уже вводились, смените пароль через официальный сайт.' if risk == 'danger' else
+        'Не переходите по этой ссылке. Уточните правильный адрес у отправителя через другой канал.' if risk == 'caution' else
+        'Если ссылка неожиданная, подтвердите отправителя и проверьте домен перед вводом личных данных.' if risk == 'low' else
+        'Не открывайте подозрительную ссылку до дополнительной проверки. Для базы VirusTotal и Google Safe Browsing необходимо разрешить их использование.'
+    )
     return {
         "domain": link.host,
         "display_url": link.safe_display,
         "risk": risk,
         "quick_verdict": quick_verdict,
+        "recommendation": action,
         "title": title,
         "detail": detail,
         "content": content,

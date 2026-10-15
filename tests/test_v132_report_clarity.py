@@ -12,9 +12,9 @@ STATIC = Path(__file__).resolve().parents[1] / 'app' / 'static'
 
 def test_version_and_text_markers():
     with TestClient(app) as client:
-        assert client.get('/health').json()['version'] == '1.3.2'
+        assert client.get('/health').json()['version'] == '1.4.0'
         index = client.get('/').text
-    assert index.count('v1.3.2') >= 2
+    assert index.count('v1.4.0') >= 2
     assert 'id="download-meta"' in index
 
 

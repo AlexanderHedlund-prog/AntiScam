@@ -203,3 +203,15 @@
   /* A printed report should not include redundant empty sections. */
   #url-signal-section.hidden {display:none!important;}
 }
+
+/* v1.4: one concrete next step instead of a second oversized verdict. */
+.next-step{padding:10px 24px 12px;border-bottom:1px solid rgba(255,255,255,.13);background:rgba(0,0,0,.10)}
+.next-step strong{font-size:13px;display:block}
+.next-step p{font-size:13px;line-height:1.45;margin:3px 0 0}
+.inline-next-check{border:0;background:transparent;text-decoration:underline;text-underline-offset:3px;color:inherit;font:inherit;font-size:13px;cursor:pointer;padding:8px 0 0;text-align:left}
+.inline-next-check:hover{opacity:.8}
+.vt-evidence{padding-top:8px}
+.vt-evidence h4{font-size:14px;margin:7px 0}
+.vt-evidence ul{margin:8px 0 4px;padding-left:20px;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+@media(max-width:720px){.next-step{padding:10px 16px}}
+@media print{.next-step{background:#fff!important;color:#111!important;padding:3mm 6mm!important;border:1px solid #ddd!important;break-inside:avoid-page!important}.inline-next-check{display:none!important}}

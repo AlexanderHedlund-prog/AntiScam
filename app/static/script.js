@@ -238,6 +238,7 @@ $('check-form').addEventListener('submit', async (event) => {
     setText('header-status', data.header_probe.http_status === 404 ? 'HTTP 404 — страница не найдена' : (headerNames[data.header_probe.status] || 'Неизвестно'));
     setText('header-message', data.header_probe.message);
     drawQuickVerdict(data, 'url');
+    setText('url-next-step', data.recommendation || 'Не открывайте неожиданные ссылки без дополнительной проверки.');
     drawReport(data, {providers:'provider-list', signals:'signal-list', disclaimer:'disclaimer', result:'result'});
   } catch (error) {
     displayError('error-box', error.name === 'AbortError' ? 'Превышено время ожидания. Попробуйте ещё раз.' : 'Не удалось проверить: ' + error.message);
@@ -332,6 +333,11 @@ function redrawFileReport(data) {
   }
   drawFileDetails(data);
   drawQuickVerdict(data, 'file');
+  setText('file-next-step', data.recommendation || 'Не открывайте неизвестный файл без дополнительной проверки.');
+  const canNewScan = data.providers?.[0]?.status === 'no_data' &&
+    !$('vt-upload-controls').classList.contains('hidden') && !data.eicar_test_only;
+  $('file-next-check').classList.toggle('hidden', !canNewScan);
+  drawVTDetails(data.providers?.[0]);
   drawVTProgress(data);
   drawReport(data, {providers:'file-providers', signals:'file-signals', disclaimer:'file-disclaimer', result:'file-result'});
   $('file-important-signals').classList.toggle('hidden', !(data.signals || []).length);
@@ -362,24 +368,40 @@ async function checkNewVTReport() {
     if (vtCheck) { vtCheck.result = latest.message; vtCheck.status = latest.status; }
     lastFileReport.vt_analysis_token = latest.analysis_token || null;
     if (latest.status === 'checked') {
-      if ((latest.detections || 0) >= 2) {
-        lastFileReport.risk = 'danger'; lastFileReport.title = 'Антивирусы обнаружили известную угрозу';
-        lastFileReport.detail = 'Новый отчёт VirusTotal содержит обнаружения. Не открывайте файл.';
-        lastFileReport.quick_verdict = {state:'danger', answer:'Есть обнаружения вредоносности', note:'VirusTotal обнаружил угрозы; подтверждение не гарантирует 100% точность каждой системы.'};
-      } else if ((latest.detections || 0) || (latest.suspicious || 0)) {
-        if (lastFileReport.risk !== 'danger') {
-          lastFileReport.risk = 'caution'; lastFileReport.title = 'Есть повод насторожиться';
-          lastFileReport.detail = 'Новый отчёт VirusTotal содержит подозрительные результаты.';
-          lastFileReport.quick_verdict = {state:'caution', answer:'Возможно опасно — вирус не подтверждён', note:'Часть систем отметила подозрительные признаки. Не открывайте файл.'};
-        }
-      } else if (lastFileReport.risk === 'unknown') {
-        lastFileReport.risk = 'low'; lastFileReport.title = 'Известных угроз не обнаружено';
-        lastFileReport.detail = 'Новый отчёт VirusTotal не содержит известных обнаружений. Это не гарантия безопасности.';
-        lastFileReport.quick_verdict = {state:'low', answer:'Известных угроз не обнаружено', note:'Результат проверки по доступным антивирусам; неизвестные угрозы могут остаться.'};
+      const malicious = Number(latest.detections || 0);
+      const suspicious = Number(latest.suspicious || 0);
+      const total = Number(latest.total || 0);
+      const hasSignals = (lastFileReport.signals || []).length > 0;
+      const partial = lastFileReport.inspection_coverage?.status === 'partial';
+      let state, answer, note, recommendation;
+      if (lastFileReport.eicar_test_only) {
+        state = 'caution'; answer = 'Это тест EICAR, а не настоящий вирус';
+        note = 'Антивирусы специально обнаруживают безвредный тест EICAR; реальные вредоносные программы этим не подтверждены.';
+        recommendation = 'Тест пройден. Для проверки реальной угрозы выберите другой файл, полученный из достоверного источника.';
+      } else if (malicious >= 2) {
+        state = 'danger'; answer = 'Обнаружена вредоносная активность по данным антивирусов';
+        note = `VirusTotal: ${malicious} обнаружений из ${total} ответивших систем. Ложные срабатывания возможны, но риск высок.`;
+        recommendation = 'Не открывайте файл. При необходимости удалите его и проверьте устройство антивирусом.';
+      } else if (malicious || suspicious || hasSignals) {
+        state = 'caution'; answer = 'Есть риск — открывать не рекомендуется';
+        note = `VirusTotal: ${malicious} вредоносных, ${suspicious} подозрительных из ${total} ответивших систем. Есть признаки, требующие внимания.`;
+        recommendation = 'Не запускайте файл и не включайте макросы. Проверьте источник и файл антивирусом на устройстве.';
+      } else if (partial) {
+        state = 'unknown'; answer = 'Антивирусы не сообщили об угрозе, но проверка неполная';
+        note = 'Отчёт VirusTotal содержит ноль обнаружений, но отдельные вложения или форматы не были исследованы AntiScam.';
+        recommendation = 'Не открывайте неожиданный файл без дополнительной проверки содержимого антивирусом.';
+      } else {
+        state = 'low'; answer = 'По проверке VirusTotal угроз не обнаружено';
+        note = `0 опасных и 0 подозрительных из ${total} ответивших систем. Это не гарантия безопасности.`;
+        recommendation = 'Проверьте отправителя; не включайте неизвестные макросы и не запускайте незнакомые программы.';
       }
-    }
-    if (latest.status === 'checked' && (latest.detections || 0) === 0 && (latest.suspicious || 0) === 0 && lastFileReport.risk === 'unknown') {
-      lastFileReport.quick_verdict.note = 'Выполненные антивирусные проверки не выявили известных угроз, но это не гарантия безопасности.';
+      const titles = {caution: 'Найдены подозрительные признаки', danger: 'Есть обнаружения вредоносности',
+                      unknown: 'Часть содержимого не проверена', low: 'Известных угроз не обнаружено'};
+      lastFileReport.risk = state;
+      lastFileReport.title = lastFileReport.eicar_test_only ? 'Обнаружен тестовый образец EICAR' : titles[state];
+      lastFileReport.detail = note;
+      lastFileReport.quick_verdict = {state, answer, note};
+      lastFileReport.recommendation = recommendation;
     }
     redrawFileReport(lastFileReport);
   } catch (error) {
@@ -388,6 +410,27 @@ async function checkNewVTReport() {
   }
 }
 $('vt-status-btn').addEventListener('click', checkNewVTReport);
+$('file-next-check').addEventListener('click', () => {
+  // Scroll only. The user must separately check the upload and privacy-consent
+  // boxes and submit the form; never send the whole file on this action.
+  $('vt-upload-controls').scrollIntoView({behavior: reduceMotion() ? 'auto' : 'smooth', block:'center'});
+  $('file-vt-upload-opt').focus();
+});
+function drawVTDetails(provider) {
+  const evidence = $('vt-evidence');
+  const findings = Array.isArray(provider?.engine_findings) ? provider.engine_findings.slice(0, 5) : [];
+  const date = Number(provider?.last_analysis_date) || 0;
+  evidence.classList.toggle('hidden', !findings.length && !date);
+  const when = date > 0 ? new Date(date * 1000) : null;
+  setText('vt-evidence-date', when && !Number.isNaN(when.getTime()) ?
+    'Дата отчёта VirusTotal: ' + when.toLocaleDateString('ru-RU', {timeZone:'UTC'}) + ' (UTC)' : '');
+  const list = $('vt-engine-findings'); list.replaceChildren();
+  for (const f of findings) {
+    const li = document.createElement('li');
+    li.textContent = String(f.engine || 'Антивирус') + ': ' + String(f.detection || 'Срабатывание');
+    list.append(li);
+  }
+}
 
 function drawFileDetails(data) {
   const checks = $('file-checks'); checks.replaceChildren();

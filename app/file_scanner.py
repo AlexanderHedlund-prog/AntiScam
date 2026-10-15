@@ -20,8 +20,8 @@ from typing import Any
 import httpx
 
 from app.reputation_quota import take_virustotal_slot
-from app.quick_verdict import build_quick_verdict
-from app.local_malware import inspect_malware_indicators
+from app.file_assessment import assess_file
+from app.local_malware import inspect_malware_indicators, EICAR_TEST
 from app.vt_file_submission import submit_unknown_file, uploads_enabled
 
 MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -288,17 +288,42 @@ async def virustotal_hash_lookup(digest: str, consent: bool) -> dict[str, Any]:
             return {'name': provider, 'status': 'error', 'message': 'Ключ VirusTotal отклонён: проверьте права API.'}
         if resp.status_code != 200:
             return {'name': provider, 'status': 'error', 'message': f'База временно недоступна (HTTP {resp.status_code}).'}
-        stats = resp.json().get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
+        attributes = resp.json().get('data', {}).get('attributes', {})
+        if not isinstance(attributes, dict):
+            return {'name': provider, 'status': 'error', 'message': 'Неверный формат отчёта VirusTotal.'}
+        stats = attributes.get('last_analysis_stats', {})
+        if not isinstance(stats, dict):
+            return {'name': provider, 'status': 'error', 'message': 'Неверная статистика отчёта VirusTotal.'}
         if not stats:
             return {'name': provider, 'status': 'no_data', 'message': 'Отчёт есть, но данных о результатах сканирования нет.'}
-        malicious = max(0, int(stats.get('malicious', 0)))
-        suspicious = max(0, int(stats.get('suspicious', 0)))
-        total = sum(max(0, int(v)) for v in stats.values() if isinstance(v, int))
+        counts = {}
+        for category in ('malicious', 'suspicious', 'harmless', 'undetected', 'timeout', 'failure', 'type-unsupported'):
+            amount = stats.get(category, 0)
+            if type(amount) is not int or amount < 0:
+                return {'name': provider, 'status': 'error', 'message': 'VirusTotal вернул некорректные числа срабатываний.'}
+            counts[category] = amount
+        malicious, suspicious = counts['malicious'], counts['suspicious']
+        total = sum(counts[c] for c in ('malicious', 'suspicious', 'harmless', 'undetected'))
         if total < 1:
             return {'name': provider, 'status': 'no_data', 'message': 'В отчёте VirusTotal нет результатов антивирусных движков. Считать файл проверенным нельзя.'}
+        # Show at most five explicitly reported names, without trusting third-party markup.
+        details = []
+        raw_results = attributes.get('last_analysis_results', {})
+        if isinstance(raw_results, dict):
+            for name, result in raw_results.items():
+                if len(details) >= 5:
+                    break
+                if not isinstance(result, dict) or result.get('category') not in ('malicious', 'suspicious'):
+                    continue
+                details.append({'engine': str(name)[:75],
+                                'category': result['category'],
+                                'detection': str(result.get('result') or 'Обнаружение без названия')[:120]})
+        date = attributes.get('last_analysis_date')
+        date = date if type(date) is int and 0 < date < 4102444800 else None
         return {'name': provider, 'status': 'checked', 'detections': malicious,
-                'suspicious': suspicious, 'total': total,
-                'message': f'Результаты имеющегося отчёта: {malicious} опасных, {suspicious} подозрительных из {total}. Это не сканирование загруженных байтов.'}
+                'suspicious': suspicious, 'total': total, 'unavailable': sum(counts[c] for c in ('timeout', 'failure', 'type-unsupported')),
+                'engine_findings': details, 'last_analysis_date': date,
+                'message': f'Результаты имеющегося отчёта: {malicious} опасных, {suspicious} подозрительных из {total} ответивших систем. Это проверка известного SHA-256, а не сканирование загруженных байтов.'}
     except (httpx.HTTPError, ValueError, TypeError, KeyError):
         return {'name': provider, 'status': 'error', 'message': 'Не удалось получить результаты из базы.'}
 
@@ -326,19 +351,11 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
     for finding in own['findings']:
         severity = 'medium' if finding['severity'] == 'test' else finding['severity']
         signals.append(_signal(severity, finding['text'] + (' (' + finding['location'] + ')' if finding['location'] else '')))
-    # EICAR and local heuristics are not genuine infection detections.
-    vt_detected = reputation.get('status') == 'checked' and reputation.get('detections', 0) >= 2
-    if vt_detected:
-        risk, title, detail = 'danger', 'Обнаружена известная сигнатура угрозы', 'Антивирусы в отчёте VirusTotal обнаружили угрозу. Не открывайте файл.'
-    elif signals or reputation.get('detections', 0) or reputation.get('suspicious', 0):
-        risk, title, detail = 'caution', 'Есть повод насторожиться', 'Обнаружены подозрительные признаки или доступен только частичный анализ. Это не доказывает наличие вируса.'
-    elif reputation.get('status') == 'checked':
-        risk, title, detail = 'low', 'Известных угроз не найдено', 'По выполненным антивирусным или репутационным проверкам угроз не обнаружено. Это не означает, что файл гарантированно безопасен.'
-    elif reputation.get('status') == 'pending':
-        risk, title, detail = 'unknown', 'Ожидаем результаты VirusTotal', 'Собственный анализ выполнен. Файл принят на новое сканирование, но антивирусный отчёт пока не готов.'
-    else:
-        risk, title, detail = 'unknown', 'Безопасность не установлена', 'Собственный статический анализ выполнен, но полноценная антивирусная проверка недоступна или отчёт отсутствует.'
-
+    # Only the exact official benign EICAR test file is exempted from AV
+    # detections. An arbitrary file *containing* EICAR may still be malicious.
+    eicar_only = data.rstrip(b'\r\n') == EICAR_TEST
+    judgement = assess_file(reputation, signals, inspection_partial, eicar_only=eicar_only)
+    risk, title, detail = judgement['risk'], judgement['title'], judgement['detail']
     coverage = {
         'status': 'partial' if inspection_partial else 'bounded',
         'title': 'Часть содержимого недоступна' if inspection_partial else 'Выполнен ограниченный статический анализ',
@@ -355,14 +372,7 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
         {'label': 'Макросы, вложения, подозрительный код', 'result': f'Собственный анализ: {own["inspected_members"]} вложенных элементов. Это не антивирус.', 'status': 'partial' if inspection_partial else 'checked'},
         {'label': 'База VirusTotal (SHA-256)', 'result': reputation.get('message', 'Нет отчёта'), 'status': reputation.get('status', 'no_data')},
     ]
-    quick_verdict = build_quick_verdict(risk, kind='file')
-    if reputation.get('status') == 'pending' and not signals :
-        quick_verdict = {'state': 'unknown', 'answer': 'Антивирусная проверка ещё идёт',
-                         'note': 'AntiScam уже проверил признаки риска. VirusTotal ещё готовит отчёт — нажмите «Узнать результат» позже.'}
-    elif risk == 'unknown':
-        quick_verdict['note'] = ('Файл исследован локально, но антивирус не дал заключения. '
-                                 + ('У VirusTotal нет готового отчёта для этого файла. ' if reputation.get('status') == 'no_data' else '')
-                                 + 'Это не поломка сканера и не означает, что вируса нет.')
+    quick_verdict = judgement['quick_verdict']
     antivirus_stage = ('Идёт новое сканирование VirusTotal' if reputation.get('status') == 'pending'
                        else 'Готовый отчёт VirusTotal получен' if reputation.get('status') == 'checked'
                        else 'Готового отчёта VirusTotal нет' if reputation.get('status') == 'no_data'
@@ -375,11 +385,9 @@ async def analyse_file(data: bytes, uploaded_name: str, consent: bool, *, submit
                     else ('Можно запросить новое сканирование по отдельному согласию.' if uploads_enabled() else 'Новое сканирование выключено владельцем сайта; готового отчёта нет.') if reputation.get('status') == 'no_data'
                     else 'Отсутствие обнаружений не гарантирует безопасность.'),
     }
-    if own['test_signatures'] and risk != 'danger':
-        quick_verdict['note'] = 'Найдена безвредная тестовая сигнатура EICAR. Это не настоящий вирус. Полная антивирусная проверка может быть недоступна.'
     return {**report, 'signals': signals, 'inspection_coverage': coverage, 'own_malware_scan': own,
             'risk': risk, 'title': title, 'detail': detail,
-            'quick_verdict': quick_verdict,
+            'quick_verdict': quick_verdict, 'recommendation': judgement['recommendation'], 'eicar_test_only': eicar_only,
             'vt_analysis_token': reputation.get('analysis_token'),
             'scan_progress': summary_steps,
             'providers': [reputation, own],
